@@ -1,0 +1,81 @@
+{
+  "model_type": "Random_Forest",
+  "features": [
+    "strain_microstrain",
+    "tilt_deg",
+    "vibration_g",
+    "displacement_mm"
+  ],
+  "classes": [
+    "ZONE_A",
+    "ZONE_B",
+    "ZONE_C"
+  ],
+  "test_accuracy": 1.0,
+  "macro_f1": 1.0,
+  "confusion_matrix": {
+    "labels": [
+      "ZONE_A",
+      "ZONE_B",
+      "ZONE_C"
+    ],
+    "matrix": [
+      [
+        1200,
+        0,
+        0
+      ],
+      [
+        0,
+        1200,
+        0
+      ],
+      [
+        0,
+        0,
+        1200
+      ]
+    ]
+  },
+  "feature_importances": {
+    "strain_microstrain": 0.2852,
+    "tilt_deg": 0.1651,
+    "vibration_g": 0.2899,
+    "displacement_mm": 0.2598
+  },
+  "zone_thresholds_reference": {
+    "ZONE_A": {
+      "strain_max": 300,
+      "tilt_max": 0.5,
+      "vibration_max": 0.08,
+      "disp_max": 2.5,
+      "status": "NOMINAL"
+    },
+    "ZONE_B": {
+      "strain_range": [
+        300,
+        750
+      ],
+      "tilt_range": [
+        0.5,
+        3.0
+      ],
+      "vibration_range": [
+        0.08,
+        0.6
+      ],
+      "disp_range": [
+        2.5,
+        8.0
+      ],
+      "status": "CAUTION"
+    },
+    "ZONE_C": {
+      "strain_min": 750,
+      "tilt_min": 3.0,
+      "vibration_min": 0.6,
+      "disp_min": 8.0,
+      "status": "CRITICAL"
+    }
+  }
+}

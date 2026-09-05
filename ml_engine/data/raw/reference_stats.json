@@ -1,0 +1,84 @@
+{
+  "tunnel_stats": {
+    "source": "ziya07/tunnel-risk-dataset",
+    "sample_count": 1000,
+    "means": {
+      "Length (m)": 549.601,
+      "Depth (m)": 108.747,
+      "Displacement (mm)": 2.6168500000000003,
+      "Settlement (mm)": 5.13522,
+      "Risk_Level": 2.39
+    },
+    "stds": {
+      "Length (m)": 258.084027332503,
+      "Depth (m)": 53.7134631831455,
+      "Displacement (mm)": 1.4196057403229807,
+      "Settlement (mm)": 2.7632528508838847,
+      "Risk_Level": 0.8594408872276432
+    }
+  },
+  "building_stats": {
+    "source": "ziya07/building-structural-health-sensor-dataset",
+    "sample_count": 1000,
+    "means": {
+      "Accel_X (m/s^2)": 0.10098597198619857,
+      "Accel_Y (m/s^2)": 0.018795493220600812,
+      "Accel_Z (m/s^2)": 9.811055213406679,
+      "Strain (\u03bc\u03b5)": 111.85812101312001,
+      "Temp (\u00b0C)": 25.02976532172878,
+      "Condition Label": 0.409
+    },
+    "stds": {
+      "Accel_X (m/s^2)": 0.3401764176541259,
+      "Accel_Y (m/s^2)": 0.2977894462331181,
+      "Accel_Z (m/s^2)": 0.09819585726216913,
+      "Strain (\u03bc\u03b5)": 28.68944662285401,
+      "Temp (\u00b0C)": 1.5219384819184893,
+      "Condition Label": 0.6842420530683473
+    }
+  },
+  "thresholds": {
+    "Zone A (Normal)": {
+      "tilt_deg": [
+        -0.1,
+        0.1
+      ],
+      "displacement_mm": [
+        0.0,
+        1.0
+      ],
+      "strain_ue": [
+        50,
+        150
+      ]
+    },
+    "Zone B (Warning)": {
+      "tilt_deg": [
+        0.5,
+        2.0
+      ],
+      "displacement_mm": [
+        5.0,
+        15.0
+      ],
+      "strain_ue": [
+        180,
+        350
+      ]
+    },
+    "Zone C (Critical)": {
+      "tilt_deg": [
+        2.5,
+        8.0
+      ],
+      "displacement_mm": [
+        20.0,
+        60.0
+      ],
+      "strain_ue": [
+        400,
+        900
+      ]
+    }
+  }
+}

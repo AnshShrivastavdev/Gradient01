@@ -1,0 +1,64 @@
+{
+  "model_name": "XGBoost_Classifier",
+  "classes": [
+    "Critical",
+    "Normal",
+    "Warning"
+  ],
+  "feature_columns": [
+    "tilt_x_deg",
+    "tilt_y_deg",
+    "tilt_composite_deg",
+    "displacement_mm",
+    "strain_ue",
+    "vibration_amp",
+    "tilt_composite_deg_mean_5s",
+    "tilt_composite_deg_std_5s",
+    "tilt_composite_deg_roc_5s",
+    "displacement_mm_mean_5s",
+    "displacement_mm_std_5s",
+    "displacement_mm_roc_5s",
+    "strain_ue_mean_5s",
+    "strain_ue_std_5s",
+    "strain_ue_roc_5s",
+    "vibration_amp_mean_5s",
+    "vibration_amp_std_5s",
+    "vibration_amp_roc_5s"
+  ],
+  "base_signals": [
+    "tilt_composite_deg",
+    "displacement_mm",
+    "strain_ue",
+    "vibration_amp"
+  ],
+  "window_size": 5,
+  "test_accuracy": 1.0,
+  "macro_f1": 1.0,
+  "top_features": {
+    "tilt_y_deg": 0.3105,
+    "displacement_mm": 0.2229,
+    "tilt_x_deg": 0.1042,
+    "tilt_composite_deg": 0.0743,
+    "displacement_mm_mean_5s": 0.072,
+    "strain_ue": 0.0699,
+    "tilt_composite_deg_mean_5s": 0.0554,
+    "vibration_amp": 0.0377,
+    "strain_ue_mean_5s": 0.0273,
+    "vibration_amp_mean_5s": 0.0255
+  },
+  "hardware_mapping": {
+    "MPU6050": [
+      "tilt_x_deg",
+      "tilt_y_deg"
+    ],
+    "VL53L4CD": [
+      "displacement_mm"
+    ],
+    "HX711_BX120": [
+      "strain_ue"
+    ],
+    "PIEZO_LM358": [
+      "vibration_amp"
+    ]
+  }
+}

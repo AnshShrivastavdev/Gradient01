@@ -1,0 +1,12 @@
+{
+  "architecture": "SubsidenceLSTMForecaster",
+  "input_shape": [
+    60,
+    1
+  ],
+  "output_horizon_hours": 6,
+  "prediction_mode": "relative_cumulative_increments",
+  "val_huber_loss": 0.02501,
+  "onnx_exported": true,
+  "critical_threshold_default_mm": 35.0
+}

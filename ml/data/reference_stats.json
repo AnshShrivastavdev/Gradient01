@@ -1,0 +1,128 @@
+{
+  "project": "SIH Underground Coal Mine Subsidence Monitoring",
+  "team": "Team Gradient",
+  "hardware_nodes": [
+    "NODE_A1",
+    "NODE_B1",
+    "NODE_C1"
+  ],
+  "sensors": {
+    "tilt": "MPU6050 Accelerometer (degrees)",
+    "displacement": "VL53L4CD ToF Sensor (mm)",
+    "strain": "BX120-3AA + HX711 (microstrain, ue)",
+    "vibration": "Piezo + LM358 (peak amplitude/counts)"
+  },
+  "zones": {
+    "Zone A": {
+      "risk_level": "Normal",
+      "tilt_x_deg_range": [
+        -0.1,
+        0.1
+      ],
+      "tilt_y_deg_range": [
+        -0.1,
+        0.1
+      ],
+      "displacement_mm_max": 1.0,
+      "strain_ue_range": [
+        50,
+        150
+      ],
+      "vibration_amp_max": 0.08,
+      "description": "Stable baseline noise, minimal strata deformation"
+    },
+    "Zone B": {
+      "risk_level": "Warning",
+      "tilt_deg_range": [
+        0.5,
+        2.0
+      ],
+      "displacement_mm_range": [
+        5.0,
+        15.0
+      ],
+      "strain_ue_range": [
+        180,
+        350
+      ],
+      "vibration_amp_range": [
+        0.1,
+        0.65
+      ],
+      "description": "Gradual tilt drift, progressive sag, transient vibration bursts"
+    },
+    "Zone C": {
+      "risk_level": "Critical",
+      "tilt_deg_range": [
+        2.5,
+        8.0
+      ],
+      "displacement_mm_range": [
+        20.0,
+        60.0
+      ],
+      "strain_ue_range": [
+        400,
+        900
+      ],
+      "vibration_amp_range": [
+        0.8,
+        4.0
+      ],
+      "description": "Severe tilt divergence, rapid subsidence collapse, sustained rupture shocks"
+    }
+  },
+  "tunnel_stats": {
+    "source": "ziya07/tunnel-risk-dataset",
+    "sample_count": 1000,
+    "columns": [
+      "Length (m)",
+      "Depth (m)",
+      "Displacement (mm)",
+      "Settlement (mm)",
+      "Risk_Level"
+    ],
+    "means": {
+      "Length (m)": 549.601,
+      "Depth (m)": 108.747,
+      "Displacement (mm)": 2.6168500000000003,
+      "Settlement (mm)": 5.13522,
+      "Risk_Level": 2.39
+    },
+    "stds": {
+      "Length (m)": 258.084027332503,
+      "Depth (m)": 53.7134631831455,
+      "Displacement (mm)": 1.4196057403229807,
+      "Settlement (mm)": 2.7632528508838847,
+      "Risk_Level": 0.8594408872276432
+    }
+  },
+  "building_stats": {
+    "source": "ziya07/building-structural-health-sensor-dataset",
+    "sample_count": 1000,
+    "columns": [
+      "Accel_X (m/s^2)",
+      "Accel_Y (m/s^2)",
+      "Accel_Z (m/s^2)",
+      "Strain (\u03bc\u03b5)",
+      "Temp (\u00b0C)",
+      "Condition Label"
+    ],
+    "means": {
+      "Accel_X (m/s^2)": 0.10098597198619857,
+      "Accel_Y (m/s^2)": 0.018795493220600812,
+      "Accel_Z (m/s^2)": 9.811055213406679,
+      "Strain (\u03bc\u03b5)": 111.85812101312001,
+      "Temp (\u00b0C)": 25.02976532172878,
+      "Condition Label": 0.409
+    },
+    "stds": {
+      "Accel_X (m/s^2)": 0.3401764176541259,
+      "Accel_Y (m/s^2)": 0.2977894462331181,
+      "Accel_Z (m/s^2)": 0.09819585726216913,
+      "Strain (\u03bc\u03b5)": 28.68944662285401,
+      "Temp (\u00b0C)": 1.5219384819184893,
+      "Condition Label": 0.6842420530683473
+    }
+  }
+}

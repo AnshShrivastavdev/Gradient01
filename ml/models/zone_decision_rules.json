@@ -1,0 +1,33 @@
+{
+  "name": "Geotechnical Risk Scoring Engine",
+  "version": "1.0",
+  "weights": {
+    "strain": 0.35,
+    "tilt": 0.25,
+    "vibration": 0.2,
+    "displacement": 0.2
+  },
+  "critical_limits": {
+    "strain_yield_limit_microstrain": 850.0,
+    "tilt_critical_deg": 3.0,
+    "vibration_critical_g": 0.6,
+    "displacement_critical_mm": 8.0
+  },
+  "zones": {
+    "ZONE_A": {
+      "label": "Nominal Baseline",
+      "color": "#15803D",
+      "score_max": 0.35
+    },
+    "ZONE_B": {
+      "label": "Seismic Caution",
+      "color": "#B45309",
+      "score_max": 0.7
+    },
+    "ZONE_C": {
+      "label": "Critical Evacuation",
+      "color": "#B91C1C",
+      "score_min": 0.7
+    }
+  }
+}

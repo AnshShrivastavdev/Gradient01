@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* GLOBAL ANTI-VIBECODING STRICT STYLING ENFORCEMENT */
+* {
+  border-radius: 0px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  background-color: #0D1117;
+  color: #E6EDF3;
+  overflow-x: hidden;
+}
+
+/* Mechanical Zinc Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0D1117;
+  border-left: 1px solid #30363D;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363D;
+  border: 1px solid #161B22;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Skeleton Loading Animation */
+@keyframes scada-skeleton {
+  0% { opacity: 0.35; background-color: #161B22; }
+  50% { opacity: 0.75; background-color: #30363D; }
+  100% { opacity: 0.35; background-color: #161B22; }
+}
+
+.scada-skeleton-loader {
+  animation: scada-skeleton 1.5s infinite ease-in-out;
+}
+
+/* Scanline / SCADA Grid Lines */
+.scada-grid-bg {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(48, 54, 61, 0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(48, 54, 61, 0.4) 1px, transparent 1px);
+}
+
+.scada-panel {
+  background-color: #161B22;
+  border: 1px solid #30363D;
+}
+
+/* Pulsing Red Emergency Siren Border */
+@keyframes siren-flash {
+  0%, 100% { border-color: #B91C1C; background-color: rgba(185, 28, 28, 0.15); }
+  50% { border-color: #30363D; background-color: #0D1117; }
+}
+
+.siren-active {
+  animation: siren-flash 0.8s infinite;
+}

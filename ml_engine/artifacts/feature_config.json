@@ -1,0 +1,31 @@
+{
+  "model_type": "XGBoost",
+  "classes": [
+    "Critical",
+    "Normal",
+    "Warning"
+  ],
+  "features": [
+    "tilt_x_deg",
+    "tilt_y_deg",
+    "tilt_composite_deg",
+    "displacement_mm",
+    "strain_ue",
+    "vibration_amp",
+    "tilt_composite_deg_mean_5s",
+    "tilt_composite_deg_std_5s",
+    "tilt_composite_deg_roc_5s",
+    "displacement_mm_mean_5s",
+    "displacement_mm_std_5s",
+    "displacement_mm_roc_5s",
+    "strain_ue_mean_5s",
+    "strain_ue_std_5s",
+    "strain_ue_roc_5s",
+    "vibration_amp_mean_5s",
+    "vibration_amp_std_5s",
+    "vibration_amp_roc_5s"
+  ],
+  "window_size": 5,
+  "test_accuracy": 1.0,
+  "macro_f1": 1.0
+}

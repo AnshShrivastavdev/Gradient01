@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # Real-Time FastAPI Telemetry & ML Inference Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mine_subsidence_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - SERIAL_PORT=/dev/ttyUSB0
+      - BAUD_RATE=115200
+      - SIMULATION_MODE=true
+      - DB_URL=sqlite:///./subsidence.db
+      - ALERT_THRESHOLD_STRAIN=750.0
+    volumes:
+      - ./backend/data:/app/data
+      - ./ml_engine/artifacts:/app/artifacts:ro
+
+  # Real-Time GIS & Live Telemetry Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mine_subsidence_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+      - VITE_WS_BASE_URL=ws://localhost:8000/ws/telemetry
