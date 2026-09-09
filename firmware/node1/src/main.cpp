@@ -125,6 +125,18 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
+  // Auto-reconnect MPU if offline
+  if (!mpuOnline) {
+    static unsigned long lastNode1Reconnect = 0;
+    if (now - lastNode1Reconnect >= 2000) {
+      lastNode1Reconnect = now;
+      mpuOnline = mpu.begin(0x68, &Wire);
+      if (mpuOnline) {
+        Serial.println("[OK] Node 1 Reference MPU reconnected!");
+      }
+    }
+  }
+
   if (now - lastTxTime >= TX_INTERVAL_MS) {
     lastTxTime = now;
     seqCounter++;

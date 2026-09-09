@@ -18,6 +18,7 @@ struct SensorPacket {
 // Function prototypes for sensor sub-handlers
 bool initMPU6500();
 bool readMPU6500(float &tilt_x, float &tilt_y);
+bool readMPU6500Motion(float &tilt_x, float &tilt_y, float &motion_vib);
 
 bool initVL53L4CD();
 bool readVL53L4CD(float &displacement_mm);
