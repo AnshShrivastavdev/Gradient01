@@ -98,20 +98,20 @@ class DigitalSignalProcessor:
         else:
             # Adaptive alpha for displacement
             disp_delta = abs(median_disp - state.last_smooth_disp)
-            alpha_d = 0.95 if disp_delta > 1.5 else 0.50
+            alpha_d = 0.98 if disp_delta > 0.5 else 0.75
             smooth_disp = (alpha_d * median_disp) + ((1.0 - alpha_d) * state.last_smooth_disp)
 
             diff_disp_delta = abs(median_diff_disp - state.last_smooth_diff_disp)
-            alpha_dd = 0.95 if diff_disp_delta > 1.5 else 0.50
+            alpha_dd = 0.98 if diff_disp_delta > 0.5 else 0.75
             smooth_diff_disp = (alpha_dd * median_diff_disp) + ((1.0 - alpha_dd) * state.last_smooth_diff_disp)
 
             # Adaptive alpha for tilt (instant response when tilting sensor in hand)
             tilt_delta = abs(median_tilt - state.last_smooth_tilt)
-            alpha_t = 0.95 if tilt_delta > 0.8 else 0.50
+            alpha_t = 0.98 if tilt_delta > 0.3 else 0.75
             smooth_tilt = (alpha_t * median_tilt) + ((1.0 - alpha_t) * state.last_smooth_tilt)
 
             tilt_y_delta = abs(median_tilt_y - state.last_smooth_tilt_y)
-            alpha_ty = 0.95 if tilt_y_delta > 0.8 else 0.50
+            alpha_ty = 0.98 if tilt_y_delta > 0.3 else 0.75
             smooth_tilt_y = (alpha_ty * median_tilt_y) + ((1.0 - alpha_ty) * state.last_smooth_tilt_y)
 
         # -------------------------------------------------------------

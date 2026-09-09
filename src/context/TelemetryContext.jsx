@@ -242,7 +242,7 @@ export const TelemetryProvider = ({ children }) => {
   useEffect(() => {
     const interval = setInterval(() => {
       // If AUTO mode and live packets were received recently (< 4s), skip synthetic simulation
-      if (overrideState === 'AUTO' && (Date.now() - lastLivePacketTime.current) < 4000) {
+      if (overrideState === 'AUTO' && (Date.now() - lastLivePacketTime.current) < 2000) {
         return;
       }
 

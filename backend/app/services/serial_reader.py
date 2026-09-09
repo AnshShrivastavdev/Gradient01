@@ -191,7 +191,7 @@ class SerialGatewayReader:
                     self.serial_conn = serial.Serial(
                         port=target_port,
                         baudrate=settings.BAUD_RATE,
-                        timeout=0.2,
+                        timeout=0.05,
                         write_timeout=1.0
                     )
                     self.connected_port = target_port

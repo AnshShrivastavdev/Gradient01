@@ -50,7 +50,7 @@ class SubsidenceMLEngine:
         self.node_buffers: Dict[str, deque] = defaultdict(lambda: deque(maxlen=LOOKBACK_STEPS))
         
         # 3-frame probability smoothing buffers per node for hysteresis: deque of dicts
-        self.prob_smooth_buffers: Dict[str, deque] = defaultdict(lambda: deque(maxlen=3))
+        self.prob_smooth_buffers: Dict[str, deque] = defaultdict(lambda: deque(maxlen=2))
         
         # Confirmed zone states for hysteresis debouncing
         self.confirmed_zones: Dict[str, str] = defaultdict(lambda: "Zone B")
