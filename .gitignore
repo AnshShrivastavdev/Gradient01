@@ -18,10 +18,11 @@ dist-ssr/
 
 # PlatformIO & Embedded
 .pio/
-.vscode/.browse.c_cpp.db*
-.vscode/c_cpp_properties.json
-.vscode/launch.json
-.vscode/ipch/
+**/.pio/
+.vscode/
+**/.vscode/
+compile_commands.json
+**/compile_commands.json
 
 # Databases & OS
 *.sqlite3

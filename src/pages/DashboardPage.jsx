@@ -142,23 +142,23 @@ export const DashboardPage = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
             {/* Node 1 */}
             <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-[#8B949E] text-[10px] font-bold uppercase">NODE 01 (FIXED LEFT)</div>
+              <div className="text-cyan-400 text-[10px] font-bold uppercase">NODE 01 (REFERENCE DATUM)</div>
               <div className="text-white font-bold">TILT X: {telemetry.node1.tiltX}°</div>
               <div className="text-white font-bold">ACCEL: {telemetry.node1.transientAccel}g</div>
             </div>
 
             {/* Node 2 */}
-            <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-[#00B4D8] text-[10px] font-bold uppercase">NODE 02 (CENTER MOVABLE)</div>
+            <div className="bg-[#161B22] border border-[#00B4D8] p-3 space-y-1 shadow-sm shadow-blue-500/20">
+              <div className="text-[#00B4D8] text-[10px] font-bold uppercase">NODE 02 (ACTIVE MONITORING)</div>
               <div className="text-white font-bold">TILT X: {telemetry.node2.tiltX}°</div>
               <div className="text-white font-bold">VIBE RMS: {telemetry.node2.transientRms}g</div>
             </div>
 
-            {/* Node 3 */}
+            {/* Gateway Differential Link */}
             <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-[#8B949E] text-[10px] font-bold uppercase">NODE 03 (FIXED RIGHT)</div>
-              <div className="text-white font-bold">TILT X: {telemetry.node3.tiltX}°</div>
-              <div className="text-white font-bold">ACCEL: {telemetry.node3.transientAccel}g</div>
+              <div className="text-indigo-400 text-[10px] font-bold uppercase">GATEWAY (DIFFERENTIAL)</div>
+              <div className="text-white font-bold">Δ SAG: {Math.max(0, telemetry.tofDistance - 0.45).toFixed(2)} mm</div>
+              <div className="text-white font-bold">UPLINK: 433MHz/WIFI</div>
             </div>
 
             {/* Overhead ToF Laser */}

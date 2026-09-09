@@ -10,7 +10,7 @@ import { VibrationFFTChart } from './components/Charts/VibrationFFTChart';
 import { MineMapView } from './components/GISMap/MineMapView';
 
 const DashboardContent = () => {
-  const [selectedNode, setSelectedNode] = useState('NODE_A1');
+  const [selectedNode, setSelectedNode] = useState('NODE_02');
   const { data: currentData } = useLiveTelemetry(selectedNode);
 
   return (

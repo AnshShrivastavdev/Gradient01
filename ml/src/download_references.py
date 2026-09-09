@@ -82,7 +82,7 @@ def fetch_and_compute_reference_statistics():
             }
     except Exception as e:
         print(f"[!] Kaggle download for 'building-structural-health-sensor-dataset' encountered: {e}")
-        print("    -> Utilizing calibrated MPU6050 multi-axis tilt & piezo vibration structural health benchmark.")
+        print("    -> Utilizing calibrated MPU6500 multi-axis tilt & piezo vibration structural health benchmark.")
         building_stats = {
             "source": "structural_health_vibration_benchmark_calibrated",
             "normal_tilt_deg": {"mean": 0.04, "std": 0.025, "p95": 0.095},
@@ -99,7 +99,7 @@ def fetch_and_compute_reference_statistics():
         "team": "Team Gradient",
         "hardware_nodes": ["NODE_A1", "NODE_B1", "NODE_C1"],
         "sensors": {
-            "tilt": "MPU6050 Accelerometer (degrees)",
+            "tilt": "MPU6500 Accelerometer (degrees)",
             "displacement": "VL53L4CD ToF Sensor (mm)",
             "strain": "BX120-3AA + HX711 (microstrain, ue)",
             "vibration": "Piezo + LM358 (peak amplitude/counts)"

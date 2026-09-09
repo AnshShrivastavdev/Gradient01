@@ -12,9 +12,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["*"]
     
     # Serial / UART Gateway Connection
-    SERIAL_PORT: str = os.getenv("SERIAL_PORT", "COM3")
+    SERIAL_PORT: str = os.getenv("SERIAL_PORT", "COM5")
     BAUD_RATE: int = int(os.getenv("BAUD_RATE", 115200))
-    SIMULATION_MODE: bool = os.getenv("SIMULATION_MODE", "true").lower() == "true"
+    SIMULATION_MODE: bool = os.getenv("SIMULATION_MODE", "false").lower() == "true"
     
     # Database
     DATABASE_URL: str = os.getenv("DB_URL", "sqlite:///./subsidence.db")

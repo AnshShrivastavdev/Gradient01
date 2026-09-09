@@ -8,10 +8,13 @@ class AlertDispatchService:
 
     def evaluate_and_dispatch(self, telemetry: dict) -> list[AlertEvent]:
         new_alerts = []
+        now_str = telemetry.get("timestamp") or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         node_id = telemetry["node_id"]
         zone_id = telemetry["zone_id"]
         risk = telemetry["predicted_risk"]
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Reference Node 1 establishes orientation baseline and must not trigger false alarms
+        if telemetry.get("role") == "REFERENCE" or node_id in ["NODE_A1", "NODE_01"]:
+            return []
 
         if risk == "Critical":
             alert = AlertEvent(

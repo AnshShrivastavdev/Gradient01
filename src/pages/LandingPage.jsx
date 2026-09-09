@@ -128,8 +128,8 @@ export const LandingPage = ({ onOpenAuth }) => {
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div className="bg-[#0D1117] border border-[#30363D] p-2.5">
-                <div className="text-white font-bold">1. 3x ESP32 + MPU6050 NODES</div>
-                <div className="text-[11px] text-[#8B949E]">Tilt vectors & transient RMS acceleration.</div>
+                <div className="text-white font-bold">1. ESP32 + MPU6500 INCLINOMETERS</div>
+                <div className="text-[11px] text-[#8B949E]">Baseline reference & tilt vectors.</div>
               </div>
               <div className="bg-[#0D1117] border border-[#30363D] p-2.5">
                 <div className="text-white font-bold">2. VL53L4CD ToF LASER</div>

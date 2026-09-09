@@ -9,7 +9,7 @@ sampled at 1 Hz across three ESP32 + LoRa nodes:
 - NODE_C1 (Zone C Sector / Extraction Void)
 
 Hardware Monitored:
-1. MPU6050 Accelerometer: tilt_x_deg, tilt_y_deg
+1. MPU6500 Accelerometer: tilt_x_deg, tilt_y_deg
 2. VL53L4CD ToF Laser: displacement_mm
 3. BX120-3AA + HX711: strain_ue (microstrain)
 4. Piezo + LM358: vibration_amp (peak amplitude)

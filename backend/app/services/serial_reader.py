@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import random
 import time
 from typing import Optional, List, Dict
@@ -119,30 +120,39 @@ class SerialGatewayReader:
                                     break
                     
                     if not connected:
-                        # Fall back temporarily to simulation while waiting for USB plug-in
-                        print(f"[GATEWAY_READER] No hardware ESP32 detected on serial ports. Emulating telemetry while scanning...")
-                        await self._emit_simulated_tick()
-                        await asyncio.sleep(1.0)
+                        # Scan quietly without generating fake/dummy telemetry
+                        await asyncio.sleep(2.0)
                         continue
 
                 # Read from active serial connection
                 try:
                     line = self.serial_conn.readline().decode('utf-8', errors='ignore').strip()
                     if line:
-                        if line.startswith('{') and line.endswith('}'):
-                            packet = json.loads(line)
-                            
-                            # Handle gateway system announcement packets
-                            if "event" in packet:
-                                if packet["event"] in ["GATEWAY_READY", "PONG"]:
-                                    self.gateway_metadata.update(packet)
-                                    print(f"[GATEWAY_HARDWARE] Gateway Announcement: {packet}")
-                            elif "node_id" in packet:
-                                self.hardware_packets_count += 1
-                                self.last_packet_time = time.strftime("%Y-%m-%d %H:%M:%S")
-                                packet["timestamp"] = self.last_packet_time
-                                if self.on_packet_callback:
-                                    await self.on_packet_callback(packet)
+                        brace_start = line.find('{')
+                        brace_end = line.rfind('}')
+                        if brace_start >= 0 and brace_end > brace_start:
+                            json_str = line[brace_start:brace_end+1]
+                            try:
+                                packet = json.loads(json_str)
+                                
+                                # Handle gateway system announcement packets
+                                if "event" in packet:
+                                    if packet["event"] in ["GATEWAY_READY", "PONG"]:
+                                        self.gateway_metadata.update(packet)
+                                        print(f"[GATEWAY_HARDWARE] Gateway Announcement: {packet}")
+                                elif "node_id" in packet:
+                                    self.hardware_packets_count += 1
+                                    self.last_packet_time = time.strftime("%Y-%m-%d %H:%M:%S")
+                                    if not packet.get("timestamp"):
+                                        packet["timestamp"] = self.last_packet_time
+                                    print(f"[SERIAL RX COM] Node: {packet.get('node_id')} | Tilt: ({packet.get('tilt_x_deg')}°, {packet.get('tilt_y_deg')}°)")
+                                    if self.on_packet_callback:
+                                        await self.on_packet_callback(packet)
+                            except json.JSONDecodeError:
+                                print(f"[GATEWAY_SERIAL] {line}")
+                        else:
+                            if line and not line.startswith("---"):
+                                print(f"[GATEWAY_SERIAL] {line}")
                 except Exception as ex:
                     print(f"[GATEWAY_READER] Serial read glitch ({ex}). Reconnecting...")
                     if self.serial_conn:
@@ -161,41 +171,69 @@ class SerialGatewayReader:
             await asyncio.sleep(0.01)
 
     async def _emit_simulated_tick(self):
-        """Generates continuous 1Hz synthetic sensor packets across nodes"""
-        nodes = [
-            {"id": "NODE_A1", "zone": "Zone A", "tilt_base": 0.02, "disp_base": 0.45, "strain_base": 92.0, "vib_base": 0.015},
-            {"id": "NODE_B1", "zone": "Zone B", "tilt_base": 0.95, "disp_base": 7.50, "strain_base": 240.0, "vib_base": 0.190},
-            {"id": "NODE_C1", "zone": "Zone C", "tilt_base": 4.50, "disp_base": 34.00, "strain_base": 650.0, "vib_base": 1.950},
-        ]
-
+        """Generates continuous 1Hz synthetic sensor packets for the 2-Node Topology (Node 1 Reference, Node 2 Monitoring)"""
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         self.last_packet_time = timestamp
 
-        for n in nodes:
-            jitter = (random.random() - 0.5) * 0.04
-            tilt_x = round(n["tilt_base"] + jitter, 3)
-            tilt_y = round(n["tilt_base"] * 0.8 + jitter, 3)
-            disp = round(n["disp_base"] + jitter * 2, 2)
-            strain = round(n["strain_base"] + jitter * 15, 1)
-            vib = round(max(0.002, n["vib_base"] + jitter * 0.1), 4)
+        # Node 1: Reference Datum (Stable Bedrock)
+        ref_jitter = (random.random() - 0.5) * 0.01
+        ref_tilt_x = round(0.02 + ref_jitter, 3)
+        ref_tilt_y = round(-0.01 + ref_jitter, 3)
+        ref_disp = round(0.45 + ref_jitter * 2, 2)
+        ref_strain = round(92.0 + ref_jitter * 5, 1)
+        ref_vib = round(max(0.002, 0.012 + ref_jitter * 0.05), 4)
 
-            packet = {
-                "node_id": n["id"],
-                "zone_id": n["zone"],
-                "timestamp": timestamp,
-                "tilt_x_deg": tilt_x,
-                "tilt_y_deg": tilt_y,
-                "displacement_mm": disp,
-                "strain_ue": strain,
-                "vibration_amp": vib,
-                "rssi_dbm": random.randint(-85, -60),
-                "snr_db": round(random.uniform(7.0, 11.5), 1),
-                "source": "SIMULATION"
-            }
+        ref_packet = {
+            "node_id": "NODE_01",
+            "role": "REFERENCE",
+            "zone_id": "Zone A",
+            "timestamp": timestamp,
+            "tilt_x_deg": ref_tilt_x,
+            "tilt_y_deg": ref_tilt_y,
+            "displacement_mm": ref_disp,
+            "strain_ue": ref_strain,
+            "vibration_amp": ref_vib,
+            "rssi_dbm": random.randint(-72, -65),
+            "snr_db": round(random.uniform(9.0, 11.5), 1),
+            "source": "SIMULATION"
+        }
 
-            self.simulation_packets_count += 1
-            if self.on_packet_callback:
-                await self.on_packet_callback(packet)
+        self.simulation_packets_count += 1
+        if self.on_packet_callback:
+            await self.on_packet_callback(ref_packet)
+
+        # Node 2: Monitoring Station (Active Subsidence Sector, Direct Shared via Gateway)
+        mon_jitter = (random.random() - 0.5) * 0.04
+        mon_tilt_x = round(0.95 + mon_jitter, 3)
+        mon_tilt_y = round(0.70 + mon_jitter, 3)
+        mon_disp = round(7.50 + mon_jitter * 2, 2)
+        mon_strain = round(240.0 + mon_jitter * 15, 1)
+        mon_vib = round(max(0.005, 0.180 + mon_jitter * 0.1), 4)
+
+        diff_disp = round(mon_disp - ref_disp, 2)
+        diff_tilt = round(float(np.sqrt((mon_tilt_x - ref_tilt_x)**2 + (mon_tilt_y - ref_tilt_y)**2)), 3) if 'np' in globals() else round(math.sqrt((mon_tilt_x - ref_tilt_x)**2 + (mon_tilt_y - ref_tilt_y)**2), 3)
+
+        mon_packet = {
+            "node_id": "NODE_02",
+            "role": "MONITORING",
+            "zone_id": "Zone B",
+            "timestamp": timestamp,
+            "tilt_x_deg": mon_tilt_x,
+            "tilt_y_deg": mon_tilt_y,
+            "displacement_mm": mon_disp,
+            "ref_displacement_mm": ref_disp,
+            "differential_displacement_mm": diff_disp,
+            "differential_tilt_deg": diff_tilt,
+            "strain_ue": mon_strain,
+            "vibration_amp": mon_vib,
+            "rssi_dbm": random.randint(-82, -70),
+            "snr_db": round(random.uniform(7.5, 10.5), 1),
+            "source": "SIMULATION"
+        }
+
+        self.simulation_packets_count += 1
+        if self.on_packet_callback:
+            await self.on_packet_callback(mon_packet)
 
 _global_gateway_reader: Optional[SerialGatewayReader] = None
 

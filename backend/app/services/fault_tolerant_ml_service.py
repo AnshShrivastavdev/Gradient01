@@ -41,8 +41,8 @@ logger = logging.getLogger("FaultTolerantMLService")
 # CALIBRATED PHYSICAL SENSOR BOUNDS & NOMINAL DEFAULTS
 # =====================================================================
 SENSOR_BOUNDS = {
-    "tilt_x_deg": {"min": -90.0, "max": 90.0, "default": 0.0},
-    "tilt_y_deg": {"min": -90.0, "max": 90.0, "default": 0.0},
+    "tilt_x_deg": {"min": -180.0, "max": 180.0, "default": 0.0},
+    "tilt_y_deg": {"min": -180.0, "max": 180.0, "default": 0.0},
     "displacement_mm": {"min": 0.0, "max": 150.0, "default": 0.50},
     "strain_ue": {"min": 0.0, "max": 2500.0, "default": 95.0},
     "vibration_amp": {"min": 0.0, "max": 10.0, "default": 0.015}
@@ -75,9 +75,9 @@ class FaultTolerantMLService:
     def __init__(self, model_path: Optional[str] = None, encoder_path: Optional[str] = None):
         self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         
-        # Candidate model paths for zero-config discovery
-        default_model_path = os.path.join(self.base_dir, "..", "ml_engine", "artifacts", "subsidence_model_optimized.joblib")
-        fallback_model_path = os.path.join(self.base_dir, "..", "ml_engine", "artifacts", "subsidence_model.joblib")
+        # Candidate model paths for zero-config discovery: prioritize calibrated 18-feature model
+        default_model_path = os.path.join(self.base_dir, "..", "ml_engine", "artifacts", "subsidence_model.joblib")
+        fallback_model_path = os.path.join(self.base_dir, "..", "ml_engine", "artifacts", "subsidence_model_optimized.joblib")
         default_encoder_path = os.path.join(self.base_dir, "..", "ml_engine", "artifacts", "label_encoder.joblib")
 
         self.model_path = model_path or (default_model_path if os.path.exists(default_model_path) else fallback_model_path)
@@ -97,6 +97,14 @@ class FaultTolerantMLService:
         # Confirmed Global State per node
         self.confirmed_states: Dict[str, str] = {}
 
+        # Reference Orientation Tracking (Node 1 with MPU6500 baseline)
+        self.reference_orientation: Dict[str, Any] = {
+            "tilt_x_deg": 0.0,
+            "tilt_y_deg": 0.0,
+            "active": False,
+            "timestamp": None
+        }
+
         # Reliability Diagnostics Counters
         self.total_processed_packets: int = 0
         self.sanitized_values_count: int = 0
@@ -113,7 +121,15 @@ class FaultTolerantMLService:
         """Attempts to load Engine A (ML Classifier). Falls back cleanly to Engine B on any error."""
         try:
             if os.path.exists(self.model_path) and os.path.exists(self.encoder_path):
-                self.model = joblib.load(self.model_path)
+                loaded_model = joblib.load(self.model_path)
+                # Verify feature dimension matches 18 FEATURE_COLUMNS
+                if hasattr(loaded_model, "n_features_in_") and loaded_model.n_features_in_ != len(FEATURE_COLUMNS):
+                    logger.warning(f"Model at {self.model_path} expects {loaded_model.n_features_in_} features, looking for 18-feature model.")
+                    alt_path = os.path.join(self.base_dir, "..", "ml_engine", "artifacts", "subsidence_model.joblib")
+                    if os.path.exists(alt_path) and alt_path != self.model_path:
+                        loaded_model = joblib.load(alt_path)
+                        self.model_path = alt_path
+                self.model = loaded_model
                 self.encoder = joblib.load(self.encoder_path)
                 self.classes = list(self.encoder.classes_)
                 self.engine_mode = "ML_ACTIVE"
@@ -161,16 +177,26 @@ class FaultTolerantMLService:
 
     def sanitize_packet(self, raw_packet: Dict[str, Any]) -> Dict[str, Any]:
         """Validates schema integrity and sanitizes all telemetry channels."""
-        node_id = str(raw_packet.get("node_id", "NODE_UNKNOWN")).strip()
-        zone_id = str(raw_packet.get("zone_id", "Zone A")).strip()
+        raw_node = str(raw_packet.get("node_id", "NODE_02")).strip()
+        node_id = raw_node if raw_node and raw_node != "NODE_UNKNOWN" else "NODE_02"
+        is_ref = (raw_packet.get("role") == "REFERENCE") or (node_id in ["NODE_01", "NODE_REF", "NODE_DATUM"])
+        role = "REFERENCE" if is_ref else raw_packet.get("role", "MONITORING")
+        zone_id = str(raw_packet.get("zone_id", "Zone A" if is_ref else "Zone B")).strip()
+
+        # If explicitly passed in packet, prefer passed values
+        if raw_packet.get("zone_id"):
+            zone_id = str(raw_packet.get("zone_id")).strip()
+        if raw_packet.get("role"):
+            role = str(raw_packet.get("role")).strip()
 
         # Parse timestamp safely
         raw_ts = raw_packet.get("timestamp")
         timestamp_str = str(raw_ts) if raw_ts else datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
         cleaned = {
-            "node_id": node_id if node_id else "NODE_A1",
-            "zone_id": zone_id if zone_id else "Zone A",
+            "node_id": node_id,
+            "role": role,
+            "zone_id": zone_id,
             "timestamp": timestamp_str,
             "tilt_x_deg": self._sanitize_numeric(raw_packet.get("tilt_x_deg"), "tilt_x_deg"),
             "tilt_y_deg": self._sanitize_numeric(raw_packet.get("tilt_y_deg"), "tilt_y_deg"),
@@ -183,6 +209,15 @@ class FaultTolerantMLService:
 
         # Calculate composite resultant tilt: theta = sqrt(x^2 + y^2)
         cleaned["tilt_composite_deg"] = round(float(np.sqrt(cleaned["tilt_x_deg"]**2 + cleaned["tilt_y_deg"]**2)), 4)
+
+        # Differential fields
+        if raw_packet.get("ref_displacement_mm") is not None:
+            cleaned["ref_displacement_mm"] = float(raw_packet["ref_displacement_mm"])
+        if raw_packet.get("differential_displacement_mm") is not None:
+            cleaned["differential_displacement_mm"] = float(raw_packet["differential_displacement_mm"])
+        if raw_packet.get("differential_tilt_deg") is not None:
+            cleaned["differential_tilt_deg"] = float(raw_packet["differential_tilt_deg"])
+
         return cleaned
 
     # =================================================================
@@ -215,10 +250,10 @@ class FaultTolerantMLService:
     def _evaluate_engine_b(self, telemetry: Dict[str, float]) -> Tuple[str, float, str]:
         """
         Engine B: Zero-dependency hard physical threshold evaluator.
-        Never fails, requires no external model weights, and serves as the safety baseline.
+        Evaluates differential tilt relative to reference datum if calibrated.
         """
-        tilt = telemetry["tilt_composite_deg"]
-        disp = telemetry["displacement_mm"]
+        tilt = telemetry.get("differential_tilt_deg") if telemetry.get("differential_tilt_deg") is not None else telemetry["tilt_composite_deg"]
+        disp = telemetry.get("differential_displacement_mm") if telemetry.get("differential_displacement_mm") is not None else telemetry["displacement_mm"]
         strain = telemetry["strain_ue"]
         vib = telemetry["vibration_amp"]
 
@@ -314,6 +349,42 @@ class FaultTolerantMLService:
         # Step 1: Defensive Sanitization
         clean_telemetry = self.sanitize_packet(raw_packet)
         node_id = clean_telemetry["node_id"]
+
+        # Step 1b: If Reference Node (Node 1 with MPU6500), update baseline orientation
+        if clean_telemetry.get("role") == "REFERENCE" or node_id in ["NODE_01", "NODE_REF", "NODE_DATUM"]:
+            self.reference_orientation = {
+                "tilt_x_deg": clean_telemetry["tilt_x_deg"],
+                "tilt_y_deg": clean_telemetry["tilt_y_deg"],
+                "active": True,
+                "timestamp": clean_telemetry["timestamp"]
+            }
+            # Reference Datum is stable bedrock; suppress subsidence alerts
+            self.confirmed_states[node_id] = "Normal"
+            buffer = self._get_node_buffer(node_id)
+            buffer.append(clean_telemetry)
+            return {
+                "node_id": node_id,
+                "zone_id": clean_telemetry["zone_id"],
+                "timestamp": clean_telemetry["timestamp"],
+                "telemetry": clean_telemetry,
+                "instant_prediction": "Normal",
+                "confirmed_risk_state": "Normal",
+                "confidence": 1.0,
+                "probabilities": {"Normal": 1.0, "Warning": 0.0, "Critical": 0.0},
+                "active_engine": "REFERENCE_DATUM_LOCK",
+                "safety_override": False,
+                "buffer_depth": len(buffer),
+                "siren_trigger": False
+            }
+        elif self.reference_orientation.get("active"):
+            # For Node 2 (Monitoring Node): Calculate differential orientation against Reference Node 1
+            diff_x = clean_telemetry["tilt_x_deg"] - self.reference_orientation["tilt_x_deg"]
+            diff_y = clean_telemetry["tilt_y_deg"] - self.reference_orientation["tilt_y_deg"]
+            diff_composite = round(float(np.sqrt(diff_x**2 + diff_y**2)), 3)
+            clean_telemetry["differential_tilt_x_deg"] = round(diff_x, 3)
+            clean_telemetry["differential_tilt_y_deg"] = round(diff_y, 3)
+            clean_telemetry["differential_tilt_deg"] = diff_composite
+            clean_telemetry["ref_orientation"] = self.reference_orientation.copy()
 
         # Step 2: Buffer Management & Gap Imputation
         buffer = self._get_node_buffer(node_id)

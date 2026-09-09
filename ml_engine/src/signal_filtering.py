@@ -3,7 +3,7 @@ Team Gradient - SIH Underground Coal Mine Subsidence Early Warning System
 Module 1: Digital Signal Conditioning & Outlier Filtering (signal_filtering.py)
 -------------------------------------------------------------------------------
 Applies edge/gateway DSP methods to 1 Hz LoRa telemetry:
-1. Hampel Outlier Rejection (window=5, n_sigmas=3.0) on ToF distance & MPU6050 tilt
+1. Hampel Outlier Rejection (window=5, n_sigmas=3.0) on ToF distance & MPU6500 tilt
    -> Rejects optical dust scattering and accelerometer spikes without blunting true subsidence steps.
 2. Low-Pass Denoising on HX711 Micro-Strain:
    -> Exponential Moving Average (EMA, alpha=0.25) & 2nd-order Butterworth low-pass to eliminate ADC thermal noise.

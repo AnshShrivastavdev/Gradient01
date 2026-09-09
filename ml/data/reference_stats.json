@@ -7,7 +7,7 @@
     "NODE_C1"
   ],
   "sensors": {
-    "tilt": "MPU6050 Accelerometer (degrees)",
+    "tilt": "MPU6500 Accelerometer (degrees)",
     "displacement": "VL53L4CD ToF Sensor (mm)",
     "strain": "BX120-3AA + HX711 (microstrain, ue)",
     "vibration": "Piezo + LM358 (peak amplitude/counts)"

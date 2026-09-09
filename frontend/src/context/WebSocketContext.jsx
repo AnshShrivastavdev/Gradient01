@@ -4,9 +4,40 @@ const WebSocketContext = createContext(null);
 
 export const WebSocketProvider = ({ children }) => {
   const [telemetry, setTelemetry] = useState({
-    NODE_A1: { node_id: 'NODE_A1', zone_id: 'Zone A', tilt_x_deg: 0.02, tilt_y_deg: -0.01, displacement_mm: 0.45, strain_ue: 92.5, vibration_amp: 0.012, predicted_risk: 'Normal', confidence: 0.99 },
-    NODE_B1: { node_id: 'NODE_B1', zone_id: 'Zone B', tilt_x_deg: 0.95, tilt_y_deg: 0.70, displacement_mm: 7.50, strain_ue: 240.0, vibration_amp: 0.180, predicted_risk: 'Warning', confidence: 0.98 },
-    NODE_C1: { node_id: 'NODE_C1', zone_id: 'Zone C', tilt_x_deg: 4.50, tilt_y_deg: 3.80, displacement_mm: 34.00, strain_ue: 650.0, vibration_amp: 1.950, predicted_risk: 'Critical', confidence: 0.99 },
+    NODE_01: {
+      node_id: 'NODE_01',
+      role: 'REFERENCE',
+      zone_id: 'Zone A',
+      tilt_x_deg: 0.0,
+      tilt_y_deg: 0.0,
+      displacement_mm: 0.0,
+      strain_ue: 0.0,
+      vibration_amp: 0.0,
+      predicted_risk: 'Normal',
+      confidence: 1.0,
+      is_reference: true,
+      description: 'Fixed Bedrock Reference Datum (Awaiting live telemetry)'
+    },
+    NODE_02: {
+      node_id: 'NODE_02',
+      role: 'MONITORING',
+      zone_id: 'Zone B',
+      tilt_x_deg: 0.0,
+      tilt_y_deg: 0.0,
+      displacement_mm: 0.0,
+      ref_displacement_mm: 0.0,
+      differential_displacement_mm: 0.0,
+      differential_tilt_deg: 0.0,
+      strain_ue: 0.0,
+      vibration_amp: 0.0,
+      predicted_risk: 'Normal',
+      confidence: 1.0,
+      is_reference: false,
+      description: 'Active Subsidence Sector (Awaiting live telemetry)'
+    },
+    // Backwards-compatible aliases
+    NODE_A1: { node_id: 'NODE_A1', role: 'REFERENCE', zone_id: 'Zone A', tilt_x_deg: 0.0, tilt_y_deg: 0.0, displacement_mm: 0.0, strain_ue: 0.0, vibration_amp: 0.0, predicted_risk: 'Normal', confidence: 1.0 },
+    NODE_B1: { node_id: 'NODE_B1', role: 'MONITORING', zone_id: 'Zone B', tilt_x_deg: 0.0, tilt_y_deg: 0.0, displacement_mm: 0.0, strain_ue: 0.0, vibration_amp: 0.0, predicted_risk: 'Normal', confidence: 1.0 },
   });
 
   const [activeAlerts, setActiveAlerts] = useState([]);

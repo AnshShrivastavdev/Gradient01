@@ -60,6 +60,22 @@ export const TelemetryProvider = ({ children }) => {
           const packet = JSON.parse(event.data);
           if (overrideState === 'AUTO' && packet) {
             setTelemetry((prev) => {
+              const isRef = packet.role === 'REFERENCE' || packet.node_id === 'NODE_A1' || packet.node_id === 'NODE_01';
+
+              if (isRef) {
+                // Update Node 1 Reference Datum orientation without altering mine risk level
+                return {
+                  ...prev,
+                  node1: {
+                    tiltX: packet.tilt_x_deg ?? prev.node1.tiltX,
+                    tiltY: packet.tilt_y_deg ?? prev.node1.tiltY,
+                    transientAccel: packet.vibration_amp ?? prev.node1.transientAccel,
+                    status: 'REFERENCE DATUM',
+                  },
+                };
+              }
+
+              // Node 2 is the main monitoring node driving risk assessment & alerts
               const activeZone =
                 packet.predicted_risk === 'Critical'
                   ? 'ZONE_C'
@@ -71,14 +87,21 @@ export const TelemetryProvider = ({ children }) => {
 
               return {
                 ...prev,
+                node2: {
+                  tiltX: packet.tilt_x_deg ?? prev.node2.tiltX,
+                  tiltY: packet.tilt_y_deg ?? prev.node2.tiltY,
+                  transientRms: packet.vibration_amp ?? prev.node2.transientRms,
+                  differentialTilt: packet.differential_tilt_deg,
+                  status: activeZone === 'ZONE_C' ? 'CRITICAL SAG' : activeZone === 'ZONE_B' ? 'ELEVATED TILT' : 'NOMINAL',
+                },
                 tofDistance: packet.displacement_mm ?? prev.tofDistance,
                 strainGauge: packet.strain_ue ?? prev.strainGauge,
                 currentZone: activeZone,
                 zoneMessage:
                   activeZone === 'ZONE_C'
-                    ? 'CRITICAL GROUND MOVEMENT. EVACUATE CAVE IMMEDIATELY.'
+                    ? 'CRITICAL GROUND MOVEMENT DETECTED ON NODE 2. EVACUATE SECTOR IMMEDIATELY.'
                     : activeZone === 'ZONE_B'
-                    ? 'MILD GROUND TREMORS DETECTED. PREPARE FOR POSSIBLE EVACUATION.'
+                    ? 'ELEVATED STRATA SAG & TILT DETECTED ON NODE 2. CAUTION ADVISED.'
                     : 'SUBSURFACE STABLE. ZERO CRITICAL TURBULENCE DETECTED.',
                 forecast: {
                   ...prev.forecast,

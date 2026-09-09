@@ -20,7 +20,7 @@ mine-subsidence-system/
 │   │   │   └── sensors.h
 │   │   └── src/
 │   │       ├── main.cpp                   # Sampling loop & packet transmission
-│   │       ├── mpu6050_handler.cpp        # Tilt & accelerometer reading
+│   │       ├── mpu6500_handler.cpp        # Tilt & accelerometer reading (MPU6500)
 │   │       ├── vl53l4cd_handler.cpp       # ToF distance/displacement reading
 │   │       ├── strain_hx711_handler.cpp   # Micro-strain bridge reading
 │   │       └── piezo_handler.cpp          # Vibration spike detection

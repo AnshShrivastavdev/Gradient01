@@ -47,7 +47,7 @@
     "vibration_amp_mean_5s": 0.0255
   },
   "hardware_mapping": {
-    "MPU6050": [
+    "MPU6500": [
       "tilt_x_deg",
       "tilt_y_deg"
     ],

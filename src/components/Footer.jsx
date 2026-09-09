@@ -66,7 +66,7 @@ export const Footer = () => {
             <div className="space-y-2 text-[#E6EDF3] leading-relaxed max-h-96 overflow-y-auto pr-2">
               <p className="font-bold text-white">REFERENCE STANDARD: DGMS (TECH) CIRCULAR NO. 04 OF 2021</p>
               <p>
-                1. MANDATORY MONITORED PARAMETERS: Micro-deformation signatures, surface tilt angles (MPU6050 vector), non-contact vertical displacement (VL53L4CD ToF), and microstrain load accumulation (BX120 cantilever strain gauges).
+                1. MANDATORY MONITORED PARAMETERS: Micro-deformation signatures, surface tilt angles (MPU6500 vector), non-contact vertical displacement (VL53L4CD ToF), and microstrain load accumulation (BX120 cantilever strain gauges).
               </p>
               <p>
                 2. MUSTER ROLL INTEGRITY: All underground personnel entering longwall panel voids must possess verified entries in the physical handwritten shift register (Muster Book reference). Unverified accounts remain restricted from mobile safe link HUD access.

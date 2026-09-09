@@ -194,7 +194,7 @@ def train_subsidence_classifier():
         "macro_f1": round(float(best_f1), 4),
         "top_features": importances,
         "hardware_mapping": {
-            "MPU6050": ["tilt_x_deg", "tilt_y_deg"],
+            "MPU6500": ["tilt_x_deg", "tilt_y_deg"],
             "VL53L4CD": ["displacement_mm"],
             "HX711_BX120": ["strain_ue"],
             "PIEZO_LM358": ["vibration_amp"]

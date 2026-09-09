@@ -8,7 +8,7 @@ Comprehensive end-to-end geotechnical data pipeline, Kaggle benchmark reference 
 
 Our system deploys **ESP32** sensor nodes across subsurface sectors transmitting telemetry over **LoRa (868.1 MHz)**:
 
-1. **Tilt (MPU6050 Accelerometer / Gyro)**: Multi-axis $X/Y$ tilt angles ($\pm 0.1^\circ$ nominal up to $8.0^\circ+$ collapse).
+1. **Tilt (MPU6500 Accelerometer / Gyro)**: Multi-axis $X/Y$ tilt angles ($\pm 0.1^\circ$ nominal up to $8.0^\circ+$ collapse).
 2. **Displacement / Roof Sag (VL53L4CD ToF Laser)**: Millimeter distance to target ($<1.0\text{mm}$ up to $60\text{mm}+$ bed separation).
 3. **Micro-Strain (BX120-3AA + HX711 24-bit ADC)**: Tensile stress on rock bolts in microstrain ($50 - 150\ \mu\epsilon$ up to $>900\ \mu\epsilon$).
 4. **Vibration (Piezoelectric Sensor + LM358 Op-Amp)**: Peak seismic vibration amplitude / impulse counts.
