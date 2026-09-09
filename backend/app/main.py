@@ -1,97 +1,144 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from typing import Optional, Dict, Any
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from app.config import settings
 from app.database.db import init_db, SessionLocal
 from app.database.crud import save_telemetry
-from app.services.serial_reader import SerialGatewayReader
-from app.services.fault_tolerant_ml_service import fault_tolerant_service
-from app.services.forecast_service import forecast_service
-from app.services.alert_service import alert_service
+from app.services.serial_reader import SerialGatewayReader, serial_reader
+from app.services.dsp_filter import dsp_processor
+from app.services.ml_engine import ml_engine
 from app.routers import telemetry, websocket
 from app.routers.websocket import ws_manager
 
-gateway_reader = None
+active_serial_reader: Optional[SerialGatewayReader] = None
 
-async def handle_incoming_lora_packet(packet: dict):
-    # 1. Run fault-tolerant dual-engine inference with automatic sanitization
-    ft_result = fault_tolerant_service.predict_packet(packet)
-    clean_tel = ft_result["telemetry"]
-    node_id = ft_result["node_id"]
 
-    # 2. Update multi-step displacement lookback buffer & generate 6-hour forecast
-    forecast_service.record_reading(node_id, clean_tel["displacement_mm"])
-    forecast_payload = forecast_service.predict_future_trajectory(node_id)
+async def handle_incoming_gateway_packet(raw_packet: dict):
+    """
+    Core Pipeline: Ingests raw serial packet from ESP32 gateway,
+    executes DSP filtering and rate estimation, runs Dual-Engine ML evaluation
+    with hysteresis, and broadcasts unified telemetry schema over WebSockets.
+    """
+    # 1. Handle Gateway System Announcements
+    if raw_packet.get("event") in ["GATEWAY_READY", "PONG", "HEARTBEAT"]:
+        print(f"[GATEWAY] System Event: {raw_packet.get('event')} from {raw_packet.get('gateway_id')}")
+        await ws_manager.broadcast_json({"type": "GATEWAY_ANNOUNCEMENT", "payload": raw_packet})
+        return
 
-    # 3. Enrich telemetry object with live forecast & Time-to-Failure (TTF)
-    enriched = {
-        "timestamp": clean_tel["timestamp"],
+    # 2. Digital Signal Processing Layer (Median Filter + EMA + Dynamic Rate Engine)
+    dsp_result = dsp_processor.process(raw_packet)
+
+    # 3. Dual-Engine ML Layer (Branch A Classifier + Branch B 6h LSTM Forecaster + TTF Calculator)
+    ml_result = ml_engine.evaluate(raw_packet, dsp_result)
+
+    node_id = str(raw_packet.get("node_id", "NODE_02"))
+    hardware_zone = str(raw_packet.get("zone_id") or raw_packet.get("hardware_zone") or "Zone B")
+    predicted_zone = ml_result["predicted_zone"]
+    confidence = ml_result["confidence"]
+
+    # 4. Formulate Unified Telemetry Payload matching exact engineering specification
+    unified_payload: Dict[str, Any] = {
         "node_id": node_id,
-        "role": clean_tel.get("role", "MONITORING" if "2" in node_id else "REFERENCE"),
-        "zone_id": ft_result["zone_id"],
-        "tilt_x_deg": clean_tel["tilt_x_deg"],
-        "tilt_y_deg": clean_tel["tilt_y_deg"],
-        "tilt_composite_deg": clean_tel["tilt_composite_deg"],
-        "displacement_mm": clean_tel["displacement_mm"],
-        "ref_displacement_mm": clean_tel.get("ref_displacement_mm"),
-        "differential_displacement_mm": clean_tel.get("differential_displacement_mm"),
-        "differential_tilt_deg": clean_tel.get("differential_tilt_deg"),
-        "strain_ue": clean_tel["strain_ue"],
-        "vibration_amp": clean_tel["vibration_amp"],
-        "predicted_risk": ft_result["confirmed_risk_state"],
-        "instant_prediction": ft_result["instant_prediction"],
-        "confidence": ft_result["confidence"],
-        "probabilities": ft_result["probabilities"],
-        "active_engine": ft_result["active_engine"],
-        "safety_override": ft_result["safety_override"],
-        "siren_trigger": ft_result["siren_trigger"],
-        "rssi_dbm": clean_tel["rssi_dbm"],
-        "snr_db": clean_tel["snr_db"],
-        # Deep Learning Forecast & TTF Early Warning
+        "hardware_zone": hardware_zone,
+        "predicted_zone": predicted_zone,
+        "confidence": confidence,
+        "raw": {
+            "disp_mm": float(raw_packet.get("displacement_mm") or 0.0),
+            "diff_disp_mm": float(raw_packet.get("differential_displacement_mm") or 0.0),
+            "diff_tilt_deg": float(raw_packet.get("differential_tilt_deg") or 0.0),
+            "tilt_x_deg": float(raw_packet.get("tilt_x_deg") or 0.0),
+            "tilt_y_deg": float(raw_packet.get("tilt_y_deg") or 0.0),
+            "vib_amp": float(raw_packet.get("vibration_amp") or 0.0),
+            "strain_ue": float(raw_packet.get("strain_ue") or 0.0),
+            "rssi": int(raw_packet.get("rssi_dbm") or -66),
+            "snr": float(raw_packet.get("snr_db") or 9.0),
+            "seq": int(raw_packet.get("seq") or 0)
+        },
+        "filtered": {
+            "smooth_disp_mm": dsp_result["smooth_disp_mm"],
+            "smooth_diff_disp_mm": dsp_result["smooth_diff_disp_mm"],
+            "disp_velocity_mm_s": dsp_result["disp_velocity_mm_s"],
+            "disp_velocity_3s_mm_s": dsp_result.get("disp_velocity_3s_mm_s", dsp_result["disp_velocity_mm_s"]),
+            "disp_velocity_10s_mm_s": dsp_result.get("disp_velocity_10s_mm_s", dsp_result["disp_velocity_mm_s"]),
+            "disp_accel_mm_s2": dsp_result["disp_accel_mm_s2"],
+            "smooth_tilt_deg": dsp_result["smooth_tilt_deg"],
+            "smooth_tilt_y_deg": dsp_result.get("smooth_tilt_y_deg", dsp_result["smooth_tilt_deg"]),
+            "tilt_rate_deg_s": dsp_result["tilt_rate_deg_s"],
+            "tilt_rate_3s_deg_s": dsp_result.get("tilt_rate_3s_deg_s", dsp_result["tilt_rate_deg_s"]),
+            "tilt_rate_10s_deg_s": dsp_result.get("tilt_rate_10s_deg_s", dsp_result["tilt_rate_deg_s"])
+        },
+        "forecasting": {
+            "forecast_curve_6h": ml_result["forecast_curve_6h"],
+            "forecast_intervals": ["+1h", "+2h", "+3h", "+4h", "+5h", "+6h"],
+            "time_to_collapse_hours": ml_result["time_to_collapse_hours"],
+            "collapse_message": ml_result["collapse_message"],
+            "critical_threshold_mm": ml_engine.collapse_threshold_mm
+        },
+        "trigger_web_siren": ml_result["trigger_web_siren"],
+        "timestamp": raw_packet.get("timestamp"),
+        
+        # Backwards-compatibility schema for multi-view dashboard components
+        "role": raw_packet.get("role", "MONITORING"),
+        "zone_id": predicted_zone,
+        "current_zone": predicted_zone,
+        "predicted_risk": "Critical" if predicted_zone == "Zone C" else "Warning" if predicted_zone == "Zone B" else "Normal",
+        "tilt_x_deg": float(raw_packet.get("tilt_x_deg") or 0.0),
+        "tilt_y_deg": float(raw_packet.get("tilt_y_deg") or 0.0),
+        "tilt_composite_deg": dsp_result["smooth_tilt_deg"],
+        "displacement_mm": dsp_result["smooth_disp_mm"],
+        "strain_ue": float(raw_packet.get("strain_ue") or 0.0),
+        "vibration_amp": float(raw_packet.get("vibration_amp") or 0.0),
+        "ref_displacement_mm": float(raw_packet.get("ref_displacement_mm") or 0.0),
+        "differential_displacement_mm": dsp_result["smooth_disp_mm"],
+        "differential_tilt_deg": dsp_result["smooth_tilt_deg"],
+        "forecast_curve_6h": ml_result["forecast_curve_6h"],
+        "time_to_collapse_hours": ml_result["time_to_collapse_hours"],
+        "collapse_message": ml_result["collapse_message"],
+        "siren_trigger": ml_result["trigger_web_siren"],
         "forecast": {
-            "time_to_critical_hours": forecast_payload["time_to_critical_hours"],
-            "status_message": forecast_payload["status_message"],
-            "forecast_trajectory": forecast_payload["forecast_trajectory"],
-            "hourly_intervals": forecast_payload["hourly_intervals"],
-            "alert_severity": forecast_payload["alert_severity"]
+            "time_to_critical_hours": ml_result["time_to_collapse_hours"],
+            "status_message": ml_result["collapse_message"],
+            "forecast_trajectory": ml_result["forecast_curve_6h"],
+            "alert_severity": "CRITICAL" if ml_result["trigger_web_siren"] else "WARNING" if predicted_zone == "Zone B" else "NORMAL"
         }
     }
 
-    # 4. Check for threshold breach / auto-siren
-    alerts = alert_service.evaluate_and_dispatch(enriched)
-    enriched["alerts"] = [a.model_dump() for a in alerts]
-
-    # 5. Save to Database
+    # 5. Persist to Database asynchronously
     try:
         db = SessionLocal()
-        save_telemetry(db, enriched)
+        save_telemetry(db, unified_payload)
         db.close()
-    except Exception as e:
-        print(f"[DB ERROR] {e}")
+    except Exception:
+        pass
 
-    # 6. Broadcast to connected Frontend WebSocket clients
-    await ws_manager.broadcast_json(enriched)
+    # 6. Dispatch to all active WebSockets (/ws/telemetry & /ws/live)
+    await ws_manager.broadcast_json(unified_payload)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("=" * 60)
-    print(" SIH Underground Coal Mine Monitoring - FastAPI Service Starting")
-    print("=" * 60)
+    print("=" * 70)
+    print(" SIH Underground Coal Mine Subsidence Monitoring - FastAPI Backend")
+    print(f" USB-Serial Ingestion + DSP Filter + Dual ML Engine (v{settings.VERSION})")
+    print("=" * 70)
+
     init_db()
 
-    global gateway_reader
-    gateway_reader = SerialGatewayReader(on_packet_callback=handle_incoming_lora_packet)
-    from app.services.serial_reader import set_global_gateway_reader
-    set_global_gateway_reader(gateway_reader)
-    await gateway_reader.start()
+    global active_serial_reader
+    loop = asyncio.get_running_loop()
+    active_serial_reader = SerialGatewayReader(on_packet_callback=handle_incoming_gateway_packet)
+    active_serial_reader.start(loop=loop)
 
     yield
 
-    print("[SHUTDOWN] Stopping telemetry ingestion...")
-    if gateway_reader:
-        await gateway_reader.stop()
+    print("\n[SHUTDOWN] Releasing serial resources and terminating background worker...")
+    if active_serial_reader:
+        active_serial_reader.stop()
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -107,21 +154,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# API Routers
 app.include_router(telemetry.router, prefix=settings.API_V1_STR)
 app.include_router(websocket.router)
 
+
 @app.get("/")
+@app.get("/health")
 def health_check():
-    diag = fault_tolerant_service.get_diagnostics()
+    status = active_serial_reader.get_status() if active_serial_reader else {}
     return {
         "status": "ONLINE",
         "system": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "mode": "SIMULATION" if settings.SIMULATION_MODE else "HARDWARE_UART",
-        "ml_engine_mode": diag["service_mode"],
-        "total_packets": diag["total_processed_packets"],
-        "memory_usage_kb": diag["memory_usage_kb"]
+        "serial_connection": status.get("is_connected", False),
+        "connected_port": status.get("connected_port"),
+        "packets_ingested": status.get("packets_received", 0),
+        "websocket_subscribers": len(ws_manager.active_connections)
     }
+
+
+@app.get("/api/v1/serial/status")
+def get_serial_status():
+    """Returns hardware COM port diagnostics."""
+    if not active_serial_reader:
+        return {"error": "Serial reader service not initialized"}
+    return active_serial_reader.get_status()
+
+
+class SerialConfigPayload(BaseModel):
+    port: str
+    baud_rate: Optional[int] = None
+    simulation_mode: Optional[bool] = None
+
+
+@app.post("/api/v1/serial/configure")
+def configure_serial_port(payload: SerialConfigPayload):
+    """Dynamically switch COM port or baud rate without server restart."""
+    global active_serial_reader
+    if not active_serial_reader:
+        return {"error": "Serial reader service not initialized"}
+
+    settings.SERIAL_PORT = payload.port
+    if payload.baud_rate:
+        settings.BAUD_RATE = payload.baud_rate
+    if payload.simulation_mode is not None:
+        settings.SIMULATION_MODE = payload.simulation_mode
+
+    active_serial_reader.stop()
+    loop = asyncio.get_running_loop()
+    active_serial_reader = SerialGatewayReader(on_packet_callback=handle_incoming_gateway_packet)
+    active_serial_reader.start(loop=loop)
+
+    return {
+        "message": f"Serial port updated to '{payload.port}'",
+        "status": active_serial_reader.get_status()
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

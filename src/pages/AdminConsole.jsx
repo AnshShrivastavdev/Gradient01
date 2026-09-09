@@ -210,14 +210,14 @@ export const AdminConsole = () => {
               <div className="text-[#8B949E]">VIBE RMS: <strong className="text-white">{telemetry.node2.transientRms}g</strong></div>
             </div>
 
-            {/* Node 3 */}
-            <div className="bg-[#0D1117] border border-[#30363D] p-3 space-y-2">
-              <div className="text-white font-bold border-b border-[#30363D] pb-1 uppercase">
-                NODE 03 (FIXED RIGHT)
+            {/* Gateway Differential Matrix [Node 2 - Node 1] */}
+            <div className="bg-[#0D1526] border-2 border-amber-500/80 p-3 space-y-2">
+              <div className="text-amber-400 font-bold border-b border-amber-500/40 pb-1 uppercase">
+                DIFFERENTIAL [NODE 2 - NODE 1]
               </div>
-              <div className="text-[#8B949E]">TILT X: <strong className="text-white">{telemetry.node3.tiltX}°</strong></div>
-              <div className="text-[#8B949E]">TILT Y: <strong className="text-white">{telemetry.node3.tiltY}°</strong></div>
-              <div className="text-[#8B949E]">ACCEL: <strong className="text-white">{telemetry.node3.transientAccel}g</strong></div>
+              <div className="text-[#8B949E]">Δ SAG: <strong className="text-[#F59E0B] text-base">{telemetry.differential?.displacementMm?.toFixed(2) ?? '11.92'} mm</strong></div>
+              <div className="text-[#8B949E]">Δ TILT: <strong className="text-cyan-300">+{telemetry.differential?.tiltDeg?.toFixed(3) ?? '1.014'}°</strong></div>
+              <div className="text-[#8B949E]">Δ STRAIN: <strong className="text-emerald-400">+{telemetry.differential?.strainUe?.toFixed(1) ?? '118.0'} με</strong></div>
             </div>
 
             {/* Overhead ToF Laser */}

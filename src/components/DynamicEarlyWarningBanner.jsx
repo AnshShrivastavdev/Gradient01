@@ -10,7 +10,7 @@ import { sirenSynthesizer } from '../services/siren';
 export const DynamicEarlyWarningBanner = ({
   timeToCriticalHours = 4.2,
   statusMessage = 'Estimated time to critical subsidence threshold: 4.2 hours',
-  activeNodeId = 'NODE_C1',
+  activeNodeId = 'NODE_02',
   criticalThreshold = 35.0,
   onTriggerRelaySiren,
 }) => {

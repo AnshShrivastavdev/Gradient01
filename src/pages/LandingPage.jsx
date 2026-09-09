@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ScrollFrameCanvas } from '../components/3d/ScrollFrameCanvas';
 import { useTelemetry } from '../context/TelemetryContext';
 
-export const LandingPage = ({ onOpenAuth }) => {
+export const LandingPage = ({ onOpenAuth, onOpenDashboard }) => {
   const { telemetry } = useTelemetry();
   const [scrollProgress, setScrollProgress] = useState(0);
   const [currentScene, setCurrentScene] = useState(1);
@@ -98,13 +98,31 @@ export const LandingPage = ({ onOpenAuth }) => {
       <div className="relative z-10 w-full space-y-32 py-12">
         {/* STORY SCENE 1: Hazard Overview */}
         <section className="min-h-screen flex items-center justify-start p-6 md:p-16 max-w-2xl">
-          <div className="bg-[#161B22]/90 border-2 border-[#30363D] p-6 space-y-3">
+          <div className="bg-[#161B22]/90 border-2 border-[#30363D] p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+              <span className="text-[10px] font-bold tracking-widest text-[#00B4D8] uppercase">TEAM GRADIENT // SIH 2026</span>
+            </div>
             <h2 className="text-xl md:text-2xl font-display font-extrabold text-white leading-snug">
               PREDICTIVE SUBSURFACE DEFORMATION & PANEL SUBSIDENCE
             </h2>
             <p className="text-xs text-[#E6EDF3] leading-relaxed">
               Underground longwall mining creates subterranean voids that induce surface subsidence. The system correlates physical testbed telemetry, distributed LoRa sensor meshes, and unsupervised AI to flag early micro-deformation prior to collapse.
             </p>
+            <div className="pt-2 flex flex-wrap items-center gap-3">
+              <button
+                onClick={onOpenDashboard}
+                className="px-5 py-2.5 bg-[#00B4D8] text-black font-bold text-xs uppercase border border-white hover:bg-cyan-400 transition-colors shadow-lg"
+              >
+                [ 🚀 OPEN LIVE DASHBOARD ]
+              </button>
+              <button
+                onClick={() => jumpToScene(2)}
+                className="px-4 py-2.5 bg-[#0D1117] text-[#8B949E] font-bold text-xs uppercase border border-[#30363D] hover:text-white transition-colors"
+              >
+                [ SCROLL 3D RIG ↓ ]
+              </button>
+            </div>
           </div>
         </section>
 
@@ -169,16 +187,22 @@ export const LandingPage = ({ onOpenAuth }) => {
               Role-Based Access Control integrated with physical shift muster roll ledger verification.
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <button
+                onClick={onOpenDashboard}
+                className="w-full sm:w-auto px-6 py-3.5 bg-[#00B4D8] text-black font-bold text-xs uppercase border border-white hover:bg-cyan-400 transition-colors shadow-lg"
+              >
+                [ DIRECT TO LIVE DASHBOARD → ]
+              </button>
               <button
                 onClick={() => onOpenAuth('WORKER_LOGIN')}
-                className="w-full sm:w-auto px-8 py-3.5 bg-[#15803D] text-white font-bold text-xs uppercase border border-white hover:bg-green-700 transition-colors"
+                className="w-full sm:w-auto px-6 py-3.5 bg-[#15803D] text-white font-bold text-xs uppercase border border-white hover:bg-green-700 transition-colors"
               >
                 [ LOG IN TO SYSTEM ]
               </button>
               <button
                 onClick={() => onOpenAuth('WORKER_REGISTER')}
-                className="w-full sm:w-auto px-8 py-3.5 bg-[#30363D] text-white font-bold text-xs uppercase border border-[#374151] hover:bg-[#374151] transition-colors"
+                className="w-full sm:w-auto px-6 py-3.5 bg-[#30363D] text-white font-bold text-xs uppercase border border-[#374151] hover:bg-[#374151] transition-colors"
               >
                 [ REGISTER NEW WORKER ]
               </button>

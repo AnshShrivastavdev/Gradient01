@@ -1,9 +1,9 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <LoRa.h>
 #include <SPI.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
 
 #include "gateway_config.h"
 
@@ -43,7 +43,8 @@ const unsigned long WIFI_RETRY_INTERVAL = 15000;
 
 // ----------------------------------------------------------
 // Two-Node Topology: Node 1 (Reference) & Node 2 (Monitoring)
-// Tracks Node 1 baseline datum to calculate differential strata movement for Node 2
+// Tracks Node 1 baseline datum to calculate differential strata movement for
+// Node 2
 // ----------------------------------------------------------
 float refDisplacementMm = 0.45;
 float refTiltX = 0.02;
@@ -61,56 +62,55 @@ void flushOfflineBuffer();
 void bufferPacket(const String &jsonPayload);
 void printWiFiStatus();
 
-// ================================================================
-// SETUP
-// ================================================================
-void setup() {
-  Serial.begin(SERIAL_BAUD_RATE);
-  delay(1000);
+// ----------------------------------------------------------
+// LoRa Initialization & Background State
+// ----------------------------------------------------------
+bool loraOnline = false;
+unsigned long lastLoRaRetry = 0;
+const unsigned long LORA_RETRY_INTERVAL = 5000;
 
-  Serial.println();
-  Serial.println("==============================================");
-  Serial.println("  SIH MINE MONITORING - GATEWAY (WiFi + LoRa)");
-  Serial.println("==============================================");
-  Serial.printf("[INIT] Gateway ID : %s\n", GATEWAY_ID);
-  Serial.printf("[INIT] Firmware   : %s\n", FIRMWARE_VERSION);
+bool initLoRa() {
+  // Hardware reset pulse to ensure clean module startup
+  pinMode(PIN_LORA_RST, OUTPUT);
+  digitalWrite(PIN_LORA_RST, LOW);
+  delay(20);
+  digitalWrite(PIN_LORA_RST, HIGH);
+  delay(50);
 
-  // Status LED
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
-
-  // ----------------------------------------------------------
-  // 1. Initialize WiFi
-  // ----------------------------------------------------------
-  connectWiFi();
-
-  // ----------------------------------------------------------
-  // 2. Initialize LoRa SX1278
-  // ----------------------------------------------------------
-  // ESP32 VSPI: SCK=GPIO18, MISO=GPIO19, MOSI=GPIO23, NSS=GPIO5
-  SPI.begin(18, 19, 23, PIN_LORA_SS);
+  // ESP32 VSPI: SCK=GPIO18, MISO=GPIO19, MOSI=GPIO23
+  SPI.begin(18, 19, 23);
   LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
+  LoRa.setSPIFrequency(
+      1000000); // 1 MHz SPI clock (reliable over breadboard jumper wires)
+
+  // Direct diagnostic SPI read of REG_VERSION (0x42)
+  pinMode(PIN_LORA_SS, OUTPUT);
+  digitalWrite(PIN_LORA_SS, LOW);
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+  SPI.transfer(0x42 & 0x7F);
+  uint8_t chipVersion = SPI.transfer(0x00);
+  SPI.endTransaction();
+  digitalWrite(PIN_LORA_SS, HIGH);
 
   Serial.println("[INIT] Starting LoRa SX1278...");
+  Serial.printf("[INIT] SPI Read Version Register: 0x%02X (Expected: 0x12)\n",
+                chipVersion);
 
   if (!LoRa.begin(LORA_BAND)) {
-    Serial.println("[ERROR] LoRa initialization FAILED!");
-    Serial.println("[ERROR] Check wiring:");
-    Serial.println("        VCC  -> 3.3V");
-    Serial.println("        GND  -> GND");
-    Serial.println("        SCK  -> GPIO18");
-    Serial.println("        MISO -> GPIO19");
-    Serial.println("        MOSI -> GPIO23");
-    Serial.println("        NSS  -> GPIO5");
-    Serial.println("        RST  -> GPIO14");
-    Serial.println("        DIO0 -> GPIO26");
-    Serial.println("        Antenna connected!");
-
-    // Blink LED rapidly to indicate LoRa failure
-    while (true) {
-      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-      delay(200);
+    Serial.println(
+        "[WARN] LoRa SX1278 initialization failed (will retry in background).");
+    if (chipVersion == 0x00) {
+      Serial.println("[CAUSE] 0x00: Module has no power (check 3.3V/GND) or "
+                     "MOSI/MISO disconnected!");
+    } else if (chipVersion == 0xFF) {
+      Serial.println("[CAUSE] 0xFF: NSS (GPIO5) / SCK (GPIO18) wire loose, or "
+                     "module held in reset!");
+    } else {
+      Serial.printf(
+          "[CAUSE] Unexpected chip ID 0x%02X (not an SX1278, or wrong pins)\n",
+          chipVersion);
     }
+    return false;
   }
 
   // LoRa radio config — MUST match sensor node
@@ -134,6 +134,40 @@ void setup() {
   Serial.println("[OK] Coding    : 4/5");
   Serial.println("[OK] CRC       : ON");
   Serial.println("[OK] DIO0      : GPIO26");
+  return true;
+}
+
+// ================================================================
+// SETUP
+// ================================================================
+void setup() {
+  Serial.begin(SERIAL_BAUD_RATE);
+  delay(1000);
+
+  Serial.println();
+  Serial.println("==============================================");
+  Serial.println("  SIH MINE MONITORING - GATEWAY (WiFi + LoRa)");
+  Serial.println("==============================================");
+  Serial.printf("[INIT] Gateway ID : %s\n", GATEWAY_ID);
+  Serial.printf("[INIT] Firmware   : %s\n", FIRMWARE_VERSION);
+
+  // Status LED
+  pinMode(PIN_STATUS_LED, OUTPUT);
+  digitalWrite(PIN_STATUS_LED, LOW);
+
+  // ----------------------------------------------------------
+  // 1. Initialize LoRa SX1278
+  // ----------------------------------------------------------
+  loraOnline = initLoRa();
+  if (!loraOnline) {
+    Serial.println("[WARN] Proceeding to WiFi initialization. LoRa will retry "
+                   "in background...");
+  }
+
+  // ----------------------------------------------------------
+  // 2. Initialize WiFi
+  // ----------------------------------------------------------
+  connectWiFi();
 
   // ----------------------------------------------------------
   // 3. Send boot announcement to backend
@@ -145,6 +179,7 @@ void setup() {
   bootDoc["ip"] = WiFi.localIP().toString();
   bootDoc["rssi_wifi"] = WiFi.RSSI();
   bootDoc["freq_mhz"] = 433.0;
+  bootDoc["lora_online"] = loraOnline;
   bootDoc["uptime_ms"] = millis();
 
   String bootJson;
@@ -156,6 +191,8 @@ void setup() {
   Serial.println("==============================================");
   Serial.println("  GATEWAY READY — WAITING FOR SENSOR NODES");
   Serial.printf("  Backend: http://%s:%d\n", BACKEND_HOST, BACKEND_PORT);
+  Serial.printf("  LoRa Status: %s\n",
+                loraOnline ? "ONLINE" : "WAITING FOR MODULE");
   Serial.println("==============================================");
   Serial.println();
 }
@@ -178,7 +215,11 @@ void loop() {
       WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     }
   } else {
-    wifiConnected = true;
+    if (!wifiConnected) {
+      wifiConnected = true;
+      Serial.println("\n[WIFI] Connected to network!");
+      printWiFiStatus();
+    }
   }
 
   // ----------------------------------------------------------
@@ -189,8 +230,24 @@ void loop() {
   }
 
   // ----------------------------------------------------------
+  // Retry LoRa in background if not yet online
+  // ----------------------------------------------------------
+  if (!loraOnline && (millis() - lastLoRaRetry >= LORA_RETRY_INTERVAL)) {
+    lastLoRaRetry = millis();
+    loraOnline = initLoRa();
+    if (loraOnline) {
+      Serial.println("\n[OK] LoRa SX1278 reconnected and ONLINE!");
+    }
+  }
+
+  // ----------------------------------------------------------
   // Check for incoming LoRa packet
   // ----------------------------------------------------------
+  if (!loraOnline) {
+    delay(20);
+    return;
+  }
+
   int packetSize = LoRa.parsePacket();
 
   if (packetSize <= 0) {
@@ -204,7 +261,8 @@ void loop() {
 
   Serial.println();
   Serial.println("----------------------------------------------");
-  Serial.printf("[RX] PACKET #%lu RECEIVED (%d bytes)\n", totalPacketsReceived, packetSize);
+  Serial.printf("[RX] PACKET #%lu RECEIVED (%d bytes)\n", totalPacketsReceived,
+                packetSize);
 
   // Read LoRa payload
   String payload = "";
@@ -224,8 +282,9 @@ void loop() {
   // ----------------------------------------------------------
   // Parse payload — supports both CSV and JSON formats
   // ----------------------------------------------------------
-  // CSV format from sensor: NODE1,AX:1.003,AY:0.032,AZ:-0.239,GX:-1.29,GY:5.62,GZ:-0.75
-  // JSON format (future):   {"node_id":"NODE_A1","tilt_x_deg":1.0,...}
+  // CSV format from sensor:
+  // NODE1,AX:1.003,AY:0.032,AZ:-0.239,GX:-1.29,GY:5.62,GZ:-0.75 JSON format
+  // (future):   {"node_id":"NODE_A1","tilt_x_deg":1.0,...}
   // ----------------------------------------------------------
 
   JsonDocument doc;
@@ -266,17 +325,24 @@ void loop() {
       token.trim();
 
       int colon = token.indexOf(':');
-      if (colon < 0) continue;
+      if (colon < 0)
+        continue;
 
       String key = token.substring(0, colon);
       float val = token.substring(colon + 1).toFloat();
 
-      if (key == "AX") ax = val;
-      else if (key == "AY") ay = val;
-      else if (key == "AZ") az = val;
-      else if (key == "GX") gx = val;
-      else if (key == "GY") gy = val;
-      else if (key == "GZ") gz = val;
+      if (key == "AX")
+        ax = val;
+      else if (key == "AY")
+        ay = val;
+      else if (key == "AZ")
+        az = val;
+      else if (key == "GX")
+        gx = val;
+      else if (key == "GY")
+        gy = val;
+      else if (key == "GZ")
+        gz = val;
     }
 
     // Convert raw MPU6500 data to geotechnical telemetry:
@@ -286,11 +352,14 @@ void loop() {
     float tiltX = atan2(ay, sqrt(ax * ax + az * az)) * 180.0 / PI;
     float tiltY = atan2(ax, sqrt(ay * ay + az * az)) * 180.0 / PI;
     float vibAmp = sqrt(gx * gx + gy * gy + gz * gz) / 100.0;
-    float displacement = sqrt(tiltX * tiltX + tiltY * tiltY) * 0.5;  // mm estimate
-    float strain = abs(tiltX) * 50.0 + abs(tiltY) * 30.0;            // microstrain estimate
+    float displacement =
+        sqrt(tiltX * tiltX + tiltY * tiltY) * 0.5; // mm estimate
+    float strain =
+        abs(tiltX) * 50.0 + abs(tiltY) * 30.0; // microstrain estimate
 
     // Build JSON document from parsed CSV
-    bool isRefNode = (nodeId.indexOf("1") >= 0 || nodeId.indexOf("A") >= 0 || nodeId.indexOf("REF") >= 0);
+    bool isRefNode = (nodeId.indexOf("1") >= 0 || nodeId.indexOf("A") >= 0 ||
+                      nodeId.indexOf("REF") >= 0);
     doc["node_id"] = isRefNode ? "NODE_01" : "NODE_02";
     doc["role"] = isRefNode ? "REFERENCE" : "MONITORING";
     doc["zone_id"] = isRefNode ? "Zone A" : "Zone B";
@@ -302,7 +371,9 @@ void loop() {
     doc["shock_count"] = (uint32_t)0;
     doc["seq"] = totalPacketsReceived;
 
-    Serial.printf("[DATA] Node ID       : %s (%s)\n", doc["node_id"].as<const char*>(), doc["role"].as<const char*>());
+    Serial.printf("[DATA] Node ID       : %s (%s)\n",
+                  doc["node_id"].as<const char *>(),
+                  doc["role"].as<const char *>());
     Serial.printf("[DATA] Tilt X        : %.3f deg\n", tiltX);
     Serial.printf("[DATA] Tilt Y        : %.3f deg\n", tiltY);
     Serial.printf("[DATA] Displacement  : %.2f mm\n", displacement);
@@ -325,28 +396,37 @@ void loop() {
   // Normalize & Process Node Roles (Node 1 Reference vs Node 2 Monitoring)
   // ----------------------------------------------------------
   String rawNodeId = doc["node_id"] | "NODE_02";
-  bool isReferenceNode = (rawNodeId.indexOf("1") >= 0 || rawNodeId.indexOf("A") >= 0 || rawNodeId.indexOf("REF") >= 0);
+  bool isReferenceNode =
+      (rawNodeId.indexOf("1") >= 0 || rawNodeId.indexOf("A") >= 0 ||
+       rawNodeId.indexOf("REF") >= 0);
 
   if (isReferenceNode) {
     doc["node_id"] = "NODE_01";
     doc["role"] = "REFERENCE";
-    if (!doc["zone_id"].is<const char*>()) doc["zone_id"] = "Zone A";
+    if (!doc["zone_id"].is<const char *>())
+      doc["zone_id"] = "Zone A";
 
     // Update Gateway internal reference baseline
-    if (doc["displacement_mm"].is<float>()) refDisplacementMm = doc["displacement_mm"].as<float>();
-    if (doc["tilt_x_deg"].is<float>()) refTiltX = doc["tilt_x_deg"].as<float>();
-    if (doc["tilt_y_deg"].is<float>()) refTiltY = doc["tilt_y_deg"].as<float>();
-    if (doc["strain_ue"].is<float>()) refStrainUe = doc["strain_ue"].as<float>();
+    if (doc["displacement_mm"].is<float>())
+      refDisplacementMm = doc["displacement_mm"].as<float>();
+    if (doc["tilt_x_deg"].is<float>())
+      refTiltX = doc["tilt_x_deg"].as<float>();
+    if (doc["tilt_y_deg"].is<float>())
+      refTiltY = doc["tilt_y_deg"].as<float>();
+    if (doc["strain_ue"].is<float>())
+      refStrainUe = doc["strain_ue"].as<float>();
     refNodeOnline = true;
     lastRefPacketTime = millis();
 
-    Serial.printf("[REF_DATUM] Updated Node 1 Baseline: Disp=%.2f mm, Tilt=(%.3f°, %.3f°)\n",
+    Serial.printf("[REF_DATUM] Updated Node 1 Baseline: Disp=%.2f mm, "
+                  "Tilt=(%.3f°, %.3f°)\n",
                   refDisplacementMm, refTiltX, refTiltY);
   } else {
     // Node 2 is the active monitoring node
     doc["node_id"] = "NODE_02";
     doc["role"] = "MONITORING";
-    if (!doc["zone_id"].is<const char*>()) doc["zone_id"] = "Zone B";
+    if (!doc["zone_id"].is<const char *>())
+      doc["zone_id"] = "Zone B";
 
     // Compute differential displacement and tilt against Node 1 reference datum
     float currentDisp = doc["displacement_mm"] | 0.0f;
@@ -354,14 +434,17 @@ void loop() {
     float currentTiltY = doc["tilt_y_deg"] | 0.0f;
 
     float diffDisp = currentDisp - refDisplacementMm;
-    float diffTilt = sqrt(pow(currentTiltX - refTiltX, 2) + pow(currentTiltY - refTiltY, 2));
+    float diffTilt =
+        sqrt(pow(currentTiltX - refTiltX, 2) + pow(currentTiltY - refTiltY, 2));
 
     doc["ref_displacement_mm"] = round(refDisplacementMm * 100.0) / 100.0;
     doc["differential_displacement_mm"] = round(diffDisp * 100.0) / 100.0;
     doc["differential_tilt_deg"] = round(diffTilt * 1000.0) / 1000.0;
 
-    Serial.printf("[MONITORING] Node 2 Telemetry (Direct Shared via Gateway):\n");
-    Serial.printf("             Raw Sag: %.2f mm | Diff Sag: %.2f mm | Diff Tilt: %.3f°\n",
+    Serial.printf(
+        "[MONITORING] Node 2 Telemetry (Direct Shared via Gateway):\n");
+    Serial.printf("             Raw Sag: %.2f mm | Diff Sag: %.2f mm | Diff "
+                  "Tilt: %.3f°\n",
                   currentDisp, diffDisp, diffTilt);
   }
 
@@ -386,7 +469,8 @@ void loop() {
   // Forward to FastAPI backend via HTTP POST (non-blocking)
   // ----------------------------------------------------------
   if (wifiConnected) {
-    if (backendReachable || (millis() - lastBackendAttempt >= BACKEND_RETRY_INTERVAL)) {
+    if (backendReachable ||
+        (millis() - lastBackendAttempt >= BACKEND_RETRY_INTERVAL)) {
       lastBackendAttempt = millis();
       bool success = postToBackend(enrichedJson);
 
@@ -398,7 +482,8 @@ void loop() {
       } else {
         backendReachable = false;
         totalPacketsFailed++;
-        Serial.println("[TX] Backend HTTP unreachable (backed off 30s) — USB Serial active");
+        Serial.println("[TX] Backend HTTP unreachable (backed off 30s) — USB "
+                       "Serial active");
       }
     }
   }
@@ -413,11 +498,15 @@ void loop() {
 // WiFi Connection Manager
 // ================================================================
 void connectWiFi() {
-  Serial.printf("[WIFI] Connecting to \"%s\"", WIFI_SSID);
+  Serial.printf("[WIFI] Initializing WiFi for SSID: \"%s\"...\n", WIFI_SSID);
 
+  WiFi.disconnect(true);
+  delay(100);
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
+  Serial.printf("[WIFI] Connecting to \"%s\"", WIFI_SSID);
   int retries = 0;
 
   while (WiFi.status() != WL_CONNECTED && retries < WIFI_MAX_RETRIES) {
@@ -436,7 +525,9 @@ void connectWiFi() {
   } else {
     wifiConnected = false;
     Serial.println(" FAILED!");
-    Serial.println("[WIFI] Will retry in main loop. LoRa packets will be buffered offline.");
+    Serial.println("[WIFI] Note: ESP32 only supports 2.4 GHz WiFi networks.");
+    Serial.println("[WIFI] Will retry in background every 15s. LoRa packets "
+                   "will be buffered.");
   }
 
   digitalWrite(PIN_STATUS_LED, LOW);
@@ -460,8 +551,9 @@ bool postToBackend(const String &jsonPayload) {
   url += BACKEND_INGEST_PATH;
 
   http.begin(url);
+  http.setConnectTimeout(800); // Prevent blocking the main loop for 5000ms
+  http.setTimeout(800);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(HTTP_TIMEOUT_MS);
 
   int httpCode = http.POST(jsonPayload);
 
@@ -486,8 +578,8 @@ bool postToBackend(const String &jsonPayload) {
 void bufferPacket(const String &jsonPayload) {
   if (bufferCount >= OFFLINE_BUFFER_SIZE) {
     // Buffer full — overwrite oldest packet (ring buffer)
-    Serial.printf("[BUFFER] Full (%d/%d) — overwriting oldest\n",
-                  bufferCount, OFFLINE_BUFFER_SIZE);
+    Serial.printf("[BUFFER] Full (%d/%d) — overwriting oldest\n", bufferCount,
+                  OFFLINE_BUFFER_SIZE);
   }
 
   offlineBuffer[bufferHead].json = jsonPayload;
@@ -497,14 +589,15 @@ void bufferPacket(const String &jsonPayload) {
     bufferCount++;
   }
 
-  Serial.printf("[BUFFER] Buffered packet (%d/%d stored)\n",
-                bufferCount, OFFLINE_BUFFER_SIZE);
+  Serial.printf("[BUFFER] Buffered packet (%d/%d stored)\n", bufferCount,
+                OFFLINE_BUFFER_SIZE);
 }
 
 void flushOfflineBuffer() {
   Serial.printf("[BUFFER] Flushing %d buffered packets...\n", bufferCount);
 
-  int startIdx = (bufferHead - bufferCount + OFFLINE_BUFFER_SIZE) % OFFLINE_BUFFER_SIZE;
+  int startIdx =
+      (bufferHead - bufferCount + OFFLINE_BUFFER_SIZE) % OFFLINE_BUFFER_SIZE;
   int flushed = 0;
 
   for (int i = 0; i < bufferCount; i++) {
@@ -515,8 +608,9 @@ void flushOfflineBuffer() {
       totalPacketsForwarded++;
     } else {
       // Backend went down again mid-flush — stop and keep remaining
-      Serial.printf("[BUFFER] Backend unreachable after flushing %d/%d. Keeping rest.\n",
-                    flushed, bufferCount);
+      Serial.printf(
+          "[BUFFER] Backend unreachable after flushing %d/%d. Keeping rest.\n",
+          flushed, bufferCount);
 
       // Adjust buffer to only keep unflushed packets
       bufferCount -= flushed;

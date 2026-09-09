@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 export const HardwareRelayAlertPanel = ({
   isCriticalActive = false,
   timeToCriticalHours = null,
-  activeNodeId = 'NODE_C1',
+  activeNodeId = 'NODE_02',
 }) => {
   const [manualSirenOverride, setManualSirenOverride] = useState(false);
   const [smsLogs, setSmsLogs] = useState([
@@ -18,7 +18,7 @@ export const HardwareRelayAlertPanel = ({
       time: '10:42:15 AM',
       recipient: 'DGMS Safety Directorate (+91-9876543210)',
       status: 'SENT',
-      message: 'Zone C1 Telemetry Nominal baseline (12.4mm). Routine telemetry heartbeat.',
+      message: 'Node 02 Telemetry Nominal baseline (12.4mm relative to Node 1). Routine telemetry heartbeat.',
     },
   ]);
 

@@ -45,41 +45,62 @@ export const WebSocketProvider = ({ children }) => {
 
   useEffect(() => {
     const wsUrl = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/ws/telemetry';
-    let ws;
+    let ws = null;
+    let reconnectTimer = null;
+    let isMounted = true;
 
-    try {
-      ws = new WebSocket(wsUrl);
+    function connect() {
+      if (!isMounted) return;
+      try {
+        ws = new WebSocket(wsUrl);
 
-      ws.onopen = () => {
-        setIsConnected(true);
-        console.log('[WS_CONNECTED] Telemetry link online');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const packet = JSON.parse(event.data);
-          if (packet.node_id) {
-            setTelemetry((prev) => ({
-              ...prev,
-              [packet.node_id]: packet,
-            }));
+        ws.onopen = () => {
+          if (isMounted) {
+            setIsConnected(true);
+            console.log('[WS_CONNECTED] Telemetry link online at', wsUrl);
           }
-          if (packet.alerts && packet.alerts.length > 0) {
-            setActiveAlerts((prev) => [...packet.alerts, ...prev].slice(0, 10));
-          }
-        } catch (err) {
-          console.error('[WS PARSE ERR]', err);
-        }
-      };
+        };
 
-      ws.onclose = () => {
-        setIsConnected(false);
-      };
-    } catch (err) {
-      console.log('[WS UNAVAILABLE] Using local state simulation');
+        ws.onmessage = (event) => {
+          if (!isMounted) return;
+          try {
+            const packet = JSON.parse(event.data);
+            if (packet.node_id) {
+              setTelemetry((prev) => ({
+                ...prev,
+                [packet.node_id]: packet,
+              }));
+            }
+            if (packet.alerts && packet.alerts.length > 0) {
+              setActiveAlerts((prev) => [...packet.alerts, ...prev].slice(0, 10));
+            }
+          } catch (err) {
+            console.error('[WS PARSE ERR]', err);
+          }
+        };
+
+        ws.onclose = () => {
+          if (isMounted) {
+            setIsConnected(false);
+            console.log('[WS OFFLINE] Reconnecting in 2.5s...');
+            reconnectTimer = setTimeout(connect, 2500);
+          }
+        };
+
+        ws.onerror = () => {
+          if (ws) ws.close();
+        };
+      } catch (err) {
+        console.log('[WS CONNECT ERROR] Retrying in 2.5s...', err);
+        reconnectTimer = setTimeout(connect, 2500);
+      }
     }
 
+    connect();
+
     return () => {
+      isMounted = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) ws.close();
     };
   }, []);

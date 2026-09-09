@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTelemetry } from '../context/TelemetryContext';
 
 /**
  * DisplacementForecastChart
@@ -13,9 +14,10 @@ export const DisplacementForecastChart = ({
   forecastTrajectory = [12.4, 18.2, 26.5, 33.1, 39.8, 45.2],
   timeToCriticalHours = 4.2,
   criticalThreshold = 35.0,
-  activeNodeId = 'NODE_C1',
+  activeNodeId = 'NODE_02',
   onNodeChange,
 }) => {
+  const { telemetry } = useTelemetry();
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const [selectedThreshold, setSelectedThreshold] = useState(criticalThreshold);
 
@@ -153,9 +155,8 @@ export const DisplacementForecastChart = ({
               onChange={(e) => onNodeChange && onNodeChange(e.target.value)}
               className="bg-transparent text-white font-bold text-xs outline-none cursor-pointer"
             >
-              <option value="NODE_C1" className="bg-[#161B22] text-white">NODE C1 (CENTER LONGWALL FACE)</option>
-              <option value="NODE_B1" className="bg-[#161B22] text-white">NODE B1 (RETURN AIRWAY PILLAR)</option>
-              <option value="NODE_A1" className="bg-[#161B22] text-white">NODE A1 (MAIN ENTRY PORTAL)</option>
+              <option value="NODE_02" className="bg-[#161B22] text-white">NODE 02 (MONITORING STATION - ACTIVE SECTOR)</option>
+              <option value="NODE_01" className="bg-[#161B22] text-white">NODE 01 (REFERENCE DATUM - BEDROCK BASELINE)</option>
             </select>
           </div>
 
@@ -167,6 +168,46 @@ export const DisplacementForecastChart = ({
             >
               {selectedThreshold.toFixed(1)} mm
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* GEOTECHNICAL DIFFERENTIAL STRATA FORMULA [NODE 2 - NODE 1] */}
+      <div className="bg-[#0A101D] border-2 border-[#00B4D8]/60 p-3 rounded text-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+        <div className="flex items-center space-x-2">
+          <span className="px-2 py-0.5 bg-[#00B4D8] text-black font-extrabold text-[10px] uppercase tracking-wider">
+            DIFFERENTIAL STRATA EQUATION
+          </span>
+          <span className="text-white font-bold tracking-wide">
+            READING: [ NODE 2 ] - [ NODE 1 (REFERENCE DATUM) ]
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+          <div className="bg-[#0D1117] border border-[#30363D] px-2.5 py-1 rounded">
+            <span className="text-[#8B949E]">Δ SAG: </span>
+            <span className="text-white font-bold">{telemetry.node2?.displacement?.toFixed(2) ?? '12.40'} mm</span>
+            <span className="text-[#8B949E]"> - </span>
+            <span className="text-cyan-400 font-bold">{telemetry.node1?.displacement?.toFixed(2) ?? '0.48'} mm (Ref)</span>
+            <span className="text-[#8B949E]"> = </span>
+            <span className="text-[#F59E0B] font-extrabold text-sm">{telemetry.differential?.displacementMm?.toFixed(2) ?? '11.92'} mm</span>
+          </div>
+
+          <div className="bg-[#0D1117] border border-[#30363D] px-2.5 py-1 rounded">
+            <span className="text-[#8B949E]">Δ TILT: </span>
+            <span className="text-white font-bold">{telemetry.node2?.tiltComposite?.toFixed(2) ?? '1.05'}°</span>
+            <span className="text-[#8B949E]"> - </span>
+            <span className="text-cyan-400 font-bold">{telemetry.node1?.tiltComposite?.toFixed(2) ?? '0.04'}°</span>
+            <span className="text-[#8B949E]"> = </span>
+            <span className="text-[#00B4D8] font-bold">+{telemetry.differential?.tiltDeg?.toFixed(3) ?? '1.014'}°</span>
+          </div>
+
+          <div className="bg-[#0D1117] border border-[#30363D] px-2.5 py-1 rounded">
+            <span className="text-[#8B949E]">Δ STRAIN: </span>
+            <span className="text-white font-bold">{telemetry.node2?.strain?.toFixed(1) ?? '210.0'} με</span>
+            <span className="text-[#8B949E]"> - </span>
+            <span className="text-cyan-400 font-bold">{telemetry.node1?.strain?.toFixed(1) ?? '92.0'} με</span>
+            <span className="text-[#8B949E]"> = </span>
+            <span className="text-[#F59E0B] font-bold">+{telemetry.differential?.strainUe?.toFixed(1) ?? '118.0'} με</span>
           </div>
         </div>
       </div>

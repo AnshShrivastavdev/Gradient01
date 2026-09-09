@@ -30,28 +30,28 @@ export const Navbar = ({ activeTab, setActiveTab, onOpenAuth }) => {
         <nav className="flex items-center space-x-2 text-xs">
           <button
             onClick={() => setActiveTab('landing')}
-            className={`px-3 py-1.5 border transition-colors ${
+            className={`px-3 py-1.5 border transition-colors flex items-center gap-1.5 ${
               activeTab === 'landing'
-                ? 'bg-[#30363D] text-white border-white font-bold'
+                ? 'bg-[#00B4D8] text-black border-white font-bold shadow-md'
                 : 'bg-[#0D1117] text-[#8B949E] border-[#30363D] hover:text-white'
             }`}
           >
-            [ 3D STORY ]
+            <span>🎬</span> [ 3D STORYTELLING ]
+          </button>
+
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-3 py-1.5 border transition-colors flex items-center gap-1.5 ${
+              activeTab === 'dashboard'
+                ? 'bg-emerald-600 text-white border-white font-bold shadow-md'
+                : 'bg-[#0D1117] text-emerald-400 border-emerald-800/80 hover:bg-emerald-950/60'
+            }`}
+          >
+            <span>📊</span> [ LIVE DASHBOARD ]
           </button>
 
           {currentUser ? (
             <>
-              <button
-                onClick={() => setActiveTab('dashboard')}
-                className={`px-3 py-1.5 border transition-colors ${
-                  activeTab === 'dashboard'
-                    ? 'bg-[#15803D] text-white border-white font-bold'
-                    : 'bg-[#0D1117] text-[#8B949E] border-[#30363D] hover:text-white'
-                }`}
-              >
-                [ DASHBOARD ]
-              </button>
-
               <button
                 onClick={logout}
                 className="px-2.5 py-1.5 bg-[#B91C1C] text-white border border-red-500 font-bold hover:bg-red-800"

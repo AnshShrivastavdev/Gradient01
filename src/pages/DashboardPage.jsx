@@ -6,8 +6,9 @@ import { DisplacementForecastChart } from '../components/DisplacementForecastCha
 import { DynamicEarlyWarningBanner } from '../components/DynamicEarlyWarningBanner';
 import { HardwareRelayAlertPanel } from '../components/HardwareRelayAlertPanel';
 import { ActiveShiftMusterDesk } from '../components/ActiveShiftMusterDesk';
+import DashboardView from '../components/DashboardView';
 
-export const DashboardPage = () => {
+export const DashboardPage = ({ onBackToStory }) => {
   const {
     telemetry,
     historicalPoints,
@@ -20,6 +21,9 @@ export const DashboardPage = () => {
   } = useTelemetry();
 
   const { currentUser, registerLedger, approveWorker, rejectWorker, logout } = useAuth();
+
+  // View toggle: 'SCADA' (Differential matrix) or 'DSP_ML' (Dedicated DSP & ML Live Telemetry)
+  const [viewMode, setViewMode] = useState('DSP_ML');
 
   // Role toggle: Defaults to ADMIN so geotechnical SCADA forecasting is visible immediately
   const [roleMode, setRoleMode] = useState(currentUser?.role || 'ADMIN');
@@ -36,7 +40,6 @@ export const DashboardPage = () => {
       sirenSynthesizer.start();
     }
   };
-
 
   return (
     <div className="min-h-[calc(100vh-140px)] bg-[#0D1117] text-[#E6EDF3] font-mono p-4 md:p-8 space-y-6 select-none max-w-7xl mx-auto">
@@ -57,9 +60,29 @@ export const DashboardPage = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          {onBackToStory && (
+            <button
+              onClick={onBackToStory}
+              className="px-3 py-1.5 font-bold uppercase border bg-emerald-950/70 text-emerald-300 border-emerald-500 hover:bg-emerald-600 hover:text-white transition-colors flex items-center gap-1"
+            >
+              <span>🎬</span> [ 3D STORYTELLING ]
+            </button>
+          )}
+
+          <button
+            onClick={() => setViewMode((v) => (v === 'SCADA' ? 'DSP_ML' : 'SCADA'))}
+            className={`px-3 py-1.5 font-bold uppercase border transition-colors ${
+              viewMode === 'DSP_ML'
+                ? 'bg-[#00B4D8] text-black border-[#00B4D8]'
+                : 'bg-[#0D1117] text-[#00B4D8] border-[#00B4D8] hover:bg-[#00B4D8] hover:text-black'
+            }`}
+          >
+            {viewMode === 'DSP_ML' ? '[ SWITCH: SCADA OVERVIEW ]' : '[ SWITCH: DSP & ML TELEMETRY ]'}
+          </button>
+
           <button
             onClick={() => setRoleMode(isAdmin ? 'WORKER' : 'ADMIN')}
-            className="px-3 py-1.5 font-bold uppercase border bg-[#0D1117] text-[#00B4D8] border-[#00B4D8] hover:bg-[#00B4D8] hover:text-black transition-colors"
+            className="px-3 py-1.5 font-bold uppercase border bg-[#0D1117] text-[#8B949E] border-[#30363D] hover:text-white transition-colors"
           >
             {isAdmin ? '[ VIEW: WORKER HUD ]' : '[ VIEW: ADMIN SCADA ]'}
           </button>
@@ -86,16 +109,22 @@ export const DashboardPage = () => {
         </div>
       </div>
 
-      {/* 2. MINIMAL CENTRAL HAZARD BEACON */}
-      <div
-        className={`p-5 border-2 flex flex-col md:flex-row items-center justify-between gap-4 transition-colors duration-300 ${
-          isCritical
-            ? 'bg-[#B91C1C] border-white text-white siren-active'
-            : isCaution
-            ? 'bg-[#B45309] border-white text-white'
-            : 'bg-[#15803D] border-white text-white'
-        }`}
-      >
+      {viewMode === 'DSP_ML' ? (
+        <div className="border-2 border-[#30363D] rounded-xl overflow-hidden shadow-2xl">
+          <DashboardView />
+        </div>
+      ) : (
+        <>
+          {/* 2. MINIMAL CENTRAL HAZARD BEACON */}
+          <div
+            className={`p-5 border-2 flex flex-col md:flex-row items-center justify-between gap-4 transition-colors duration-300 ${
+              isCritical
+                ? 'bg-[#B91C1C] border-white text-white siren-active'
+                : isCaution
+                ? 'bg-[#B45309] border-white text-white'
+                : 'bg-[#15803D] border-white text-white'
+            }`}
+          >
         <div className="space-y-1 text-center md:text-left">
           <div className="text-[10px] font-bold uppercase tracking-widest opacity-90">
             REAL-TIME COAL MINE HAZARD BEACON
@@ -139,41 +168,76 @@ export const DashboardPage = () => {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
-            {/* Node 1 */}
-            <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-cyan-400 text-[10px] font-bold uppercase">NODE 01 (REFERENCE DATUM)</div>
-              <div className="text-white font-bold">TILT X: {telemetry.node1.tiltX}°</div>
-              <div className="text-white font-bold">ACCEL: {telemetry.node1.transientAccel}g</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+            {/* Card 1: Node 1 Reference Datum */}
+            <div className="bg-[#161B22] border-2 border-cyan-500/40 p-3 space-y-1.5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-cyan-400 text-[10px] font-bold uppercase tracking-wider">NODE 01 (REF DATUM)</span>
+                <span className="text-[9px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800">BEDROCK BASE</span>
+              </div>
+              <div className="text-white font-bold">SAG: <span className="text-cyan-300 text-sm font-extrabold">{telemetry.node1?.displacement?.toFixed(2) ?? '0.48'} mm</span></div>
+              <div className="text-xs text-gray-300">TILT: <span className="text-white font-bold">{telemetry.node1?.tiltComposite?.toFixed(2) ?? '0.04'}°</span> (X:{telemetry.node1?.tiltX}° Y:{telemetry.node1?.tiltY}°)</div>
+              <div className="text-xs text-gray-400">STRAIN: <span className="text-white font-bold">{telemetry.node1?.strain?.toFixed(1) ?? '92.0'} με</span></div>
+              <div className="text-[10px] text-gray-500">ACCEL: {telemetry.node1?.transientAccel ?? '0.012'}g</div>
             </div>
 
-            {/* Node 2 */}
-            <div className="bg-[#161B22] border border-[#00B4D8] p-3 space-y-1 shadow-sm shadow-blue-500/20">
-              <div className="text-[#00B4D8] text-[10px] font-bold uppercase">NODE 02 (ACTIVE MONITORING)</div>
-              <div className="text-white font-bold">TILT X: {telemetry.node2.tiltX}°</div>
-              <div className="text-white font-bold">VIBE RMS: {telemetry.node2.transientRms}g</div>
+            {/* Card 2: Node 2 Active Monitoring Station */}
+            <div className="bg-[#161B22] border-2 border-[#00B4D8] p-3 space-y-1.5 shadow-sm shadow-blue-500/20">
+              <div className="flex items-center justify-between">
+                <span className="text-[#00B4D8] text-[10px] font-bold uppercase tracking-wider">NODE 02 (MONITORING)</span>
+                <span className="text-[9px] bg-blue-950 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800">ACTIVE SECTOR</span>
+              </div>
+              <div className="text-white font-bold">SAG: <span className="text-[#F59E0B] text-sm font-extrabold">{telemetry.node2?.displacement?.toFixed(2) ?? '12.40'} mm</span></div>
+              <div className="text-xs text-gray-300">TILT: <span className="text-white font-bold">{telemetry.node2?.tiltComposite?.toFixed(2) ?? '1.05'}°</span> (X:{telemetry.node2?.tiltX}° Y:{telemetry.node2?.tiltY}°)</div>
+              <div className="text-xs text-gray-400">STRAIN: <span className="text-white font-bold">{telemetry.node2?.strain?.toFixed(1) ?? '210.0'} με</span></div>
+              <div className="text-[10px] text-gray-500">VIBE RMS: {telemetry.node2?.transientRms ?? '0.080'}g</div>
             </div>
 
-            {/* Gateway Differential Link */}
-            <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-indigo-400 text-[10px] font-bold uppercase">GATEWAY (DIFFERENTIAL)</div>
-              <div className="text-white font-bold">Δ SAG: {Math.max(0, telemetry.tofDistance - 0.45).toFixed(2)} mm</div>
-              <div className="text-white font-bold">UPLINK: 433MHz/WIFI</div>
+            {/* Card 3: Differential Sag = Node 2 - Node 1 */}
+            <div className="bg-[#0D1526] border-2 border-amber-500/80 p-3 space-y-1 shadow-md">
+              <div className="text-amber-400 text-[10px] font-bold uppercase tracking-wider">
+                Δ SAG [NODE 2 - NODE 1]
+              </div>
+              <div className="text-[11px] text-gray-300 font-mono">
+                {telemetry.node2?.displacement?.toFixed(2) ?? '12.40'} - {telemetry.node1?.displacement?.toFixed(2) ?? '0.48'}
+              </div>
+              <div className="text-lg font-extrabold text-[#F59E0B]">
+                = {telemetry.differential?.displacementMm?.toFixed(2) ?? '11.92'} mm
+              </div>
+              <div className="text-[10px] text-gray-400">
+                True Strata Sag vs Bedrock
+              </div>
             </div>
 
-            {/* Overhead ToF Laser */}
-            <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-[#B91C1C] text-[10px] font-bold uppercase">VL53L4CD ToF LASER</div>
-              <div className="text-[#8B949E] text-[11px]">DISPLACEMENT:</div>
-              <div className="text-base font-bold text-white">{telemetry.tofDistance.toFixed(2)} mm</div>
+            {/* Card 4: Differential Tilt = Node 2 - Node 1 */}
+            <div className="bg-[#0D1526] border-2 border-indigo-500/80 p-3 space-y-1 shadow-md">
+              <div className="text-indigo-400 text-[10px] font-bold uppercase tracking-wider">
+                Δ TILT [NODE 2 - NODE 1]
+              </div>
+              <div className="text-[11px] text-gray-300 font-mono">
+                {telemetry.node2?.tiltComposite?.toFixed(2) ?? '1.05'}° - {telemetry.node1?.tiltComposite?.toFixed(2) ?? '0.04'}°
+              </div>
+              <div className="text-lg font-extrabold text-cyan-300">
+                = +{telemetry.differential?.tiltDeg?.toFixed(3) ?? '1.014'}°
+              </div>
+              <div className="text-[10px] text-gray-400">
+                Angular Strata Deflection
+              </div>
             </div>
 
-            {/* Cantilever Strain Gauge */}
-            <div className="bg-[#161B22] border border-[#30363D] p-3 space-y-1">
-              <div className="text-[#B45309] text-[10px] font-bold uppercase">BX120 STRAIN GAUGE</div>
-              <div className="text-[#8B949E] text-[11px]">MICROSTRAIN:</div>
-              <div className={`text-base font-bold ${telemetry.strainGauge > 850 ? 'text-[#B91C1C]' : 'text-white'}`}>
-                {telemetry.strainGauge.toFixed(1)} με
+            {/* Card 5: Differential Strain = Node 2 - Node 1 */}
+            <div className="bg-[#0D1526] border-2 border-emerald-500/80 p-3 space-y-1 shadow-md">
+              <div className="text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
+                Δ STRAIN [NODE 2 - NODE 1]
+              </div>
+              <div className="text-[11px] text-gray-300 font-mono">
+                {telemetry.node2?.strain?.toFixed(1) ?? '210.0'} - {telemetry.node1?.strain?.toFixed(1) ?? '92.0'}
+              </div>
+              <div className="text-lg font-extrabold text-white">
+                = +{telemetry.differential?.strainUe?.toFixed(1) ?? '118.0'} με
+              </div>
+              <div className="text-[10px] text-gray-400">
+                Induced Mechanical Stress
               </div>
             </div>
           </div>
@@ -302,6 +366,8 @@ export const DashboardPage = () => {
           </div>
         </div>
       )}
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 };

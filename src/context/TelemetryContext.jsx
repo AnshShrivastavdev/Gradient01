@@ -10,8 +10,8 @@ export const TelemetryProvider = ({ children }) => {
   // Manual Drill / Hazard State Override: 'ZONE_A' | 'ZONE_B' | 'ZONE_C' | 'AUTO'
   const [overrideState, setOverrideState] = useState('AUTO');
 
-  // Active node for forecasting inspection
-  const [activeForecastNode, setActiveForecastNode] = useState('NODE_C1');
+  // Active node for forecasting inspection: Only NODE_02 (Monitoring) or NODE_01 (Reference)
+  const [activeForecastNode, setActiveForecastNode] = useState('NODE_02');
 
   // Historical displacement buffer (past 5-6 points)
   const [historicalPoints, setHistoricalPoints] = useState([
@@ -22,116 +22,230 @@ export const TelemetryProvider = ({ children }) => {
     { label: 'Now', timeVal: 0.0, value: 12.4, isFuture: false },
   ]);
 
-  // Baseline Telemetry Values
+  // Baseline Telemetry Values for 2-Node Topology (Node 1 Datum & Node 2 Monitoring)
   const [telemetry, setTelemetry] = useState({
-    node1: { tiltX: 0.02, tiltY: -0.01, transientAccel: 0.012, status: 'NOMINAL' },
-    node2: { tiltX: 0.14, tiltY: 0.08, transientRms: 0.045, status: 'NOMINAL' },
-    node3: { tiltX: -0.01, tiltY: 0.03, transientAccel: 0.009, status: 'NOMINAL' },
-    tofDistance: 12.40, // mm vertical displacement
-    strainGauge: 142.5, // microstrain (με) (Threshold: 850 με)
-    anomalyScore: 0.18, // 0.00 - 1.00
-    currentZone: 'ZONE_A', // ZONE_A | ZONE_B | ZONE_C
-    zoneMessage: 'SUBSURFACE STABLE. ZERO CRITICAL TURBULENCE DETECTED.',
+    node1: {
+      nodeId: 'NODE_01',
+      role: 'REFERENCE',
+      tiltX: 0.035,
+      tiltY: 0.015,
+      tiltComposite: 0.038,
+      displacement: 0.48, // mm (Bedrock Datum Baseline)
+      strain: 92.0,       // microstrain (με)
+      transientAccel: 0.012,
+      status: 'REFERENCE DATUM',
+    },
+    node2: {
+      nodeId: 'NODE_02',
+      role: 'MONITORING',
+      tiltX: 0.850,
+      tiltY: 0.620,
+      tiltComposite: 1.052,
+      displacement: 12.40, // mm (Active Sag)
+      strain: 210.0,       // microstrain (με)
+      transientRms: 0.080,
+      status: 'MONITORING',
+    },
+    // Differential calculations: Node 2 - Node 1 (Reference)
+    differential: {
+      displacementMm: 11.92, // Node 2 (12.40) - Node 1 (0.48)
+      tiltDeg: 1.014,        // Node 2 - Node 1
+      strainUe: 118.0,       // Node 2 (210.0) - Node 1 (92.0)
+      vibrationDiff: 0.068,  // Node 2 - Node 1
+    },
+    tofDistance: 12.40,      // mm vertical displacement (Node 2)
+    strainGauge: 210.0,      // microstrain (με) (Node 2)
+    confidence: 96.5,        // ML confidence %
+    anomalyScore: 0.18,      // 0.00 - 1.00
+    currentZone: 'ZONE_B',   // ZONE_A | ZONE_B | ZONE_C
+    zoneMessage: 'ELEVATED STRATA SAG & TILT DETECTED ON NODE 2. MONITORING TRAJECTORY.',
     lastUpdated: new Date().toISOString(),
-    samplingRate: '50 Hz',
-    loraFrequency: '868.10 MHz',
-    latencyMs: 24,
+    samplingRate: '1 Hz LoRa / 115200 Baud UART',
+    loraFrequency: '433.00 MHz',
+    latencyMs: 18,
     // Deep LSTM Multi-Step Forecasting Engine
     forecast: {
       timeToCriticalHours: null,
       statusMessage: 'Ground displacement trajectory stable. No critical breach forecasted within 6 hours.',
-      forecastTrajectory: [12.8, 13.2, 13.7, 14.1, 14.6, 15.0],
+      forecastTrajectory: [12.63, 12.81, 13.04, 13.32, 13.65, 14.02],
       criticalThreshold: 35.0,
-      activeEngine: 'LSTM_ONNX_V2',
+      activeEngine: 'PYTORCH_2LAYER_LSTM',
     },
   });
 
   const wsRef = useRef(null);
+  const lastLivePacketTime = useRef(0);
 
-  // Connect to FastAPI live WebSocket stream if backend is available
+  // Connect to FastAPI live WebSocket stream with resilient auto-reconnect
   useEffect(() => {
-    let socket;
-    try {
-      socket = new WebSocket('ws://localhost:8000/ws/live');
-      wsRef.current = socket;
+    let socket = null;
+    let reconnectTimer = null;
+    let isMounted = true;
 
-      socket.onmessage = (event) => {
-        try {
-          const packet = JSON.parse(event.data);
-          if (overrideState === 'AUTO' && packet) {
-            setTelemetry((prev) => {
-              const isRef = packet.role === 'REFERENCE' || packet.node_id === 'NODE_A1' || packet.node_id === 'NODE_01';
+    function connectWs() {
+      if (!isMounted) return;
+      try {
+        socket = new WebSocket('ws://localhost:8000/ws/live');
+        wsRef.current = socket;
 
-              if (isRef) {
-                // Update Node 1 Reference Datum orientation without altering mine risk level
-                return {
-                  ...prev,
-                  node1: {
-                    tiltX: packet.tilt_x_deg ?? prev.node1.tiltX,
-                    tiltY: packet.tilt_y_deg ?? prev.node1.tiltY,
-                    transientAccel: packet.vibration_amp ?? prev.node1.transientAccel,
+        socket.onopen = () => {
+          console.log('[ROOT_WS] Live telemetry connection established');
+        };
+
+        socket.onmessage = (event) => {
+          if (!isMounted) return;
+          try {
+            const packet = JSON.parse(event.data);
+            if (!packet || packet.type === 'GATEWAY_ANNOUNCEMENT') return;
+
+            lastLivePacketTime.current = Date.now();
+
+            if (overrideState === 'AUTO') {
+              setTelemetry((prev) => {
+                const isRef = packet.role === 'REFERENCE' || packet.node_id === 'NODE_01';
+
+                if (isRef) {
+                  // Update Node 1 Reference Datum orientation without altering mine risk level
+                  const newN1 = {
+                    ...prev.node1,
+                    tiltX: packet.raw?.tilt_x_deg ?? packet.tilt_x_deg ?? prev.node1.tiltX,
+                    tiltY: packet.raw?.tilt_y_deg ?? packet.tilt_y_deg ?? prev.node1.tiltY,
+                    tiltComposite: packet.filtered?.smooth_tilt_deg ?? packet.tilt_composite_deg ?? prev.node1.tiltComposite,
+                    displacement: packet.filtered?.smooth_disp_mm ?? packet.displacement_mm ?? prev.node1.displacement,
+                    strain: packet.raw?.strain_ue ?? packet.strain_ue ?? prev.node1.strain,
+                    transientAccel: packet.raw?.vib_amp ?? packet.vibration_amp ?? prev.node1.transientAccel,
                     status: 'REFERENCE DATUM',
-                  },
+                  };
+
+                  const diffDisp = Number((prev.node2.displacement - newN1.displacement).toFixed(2));
+                  const diffTilt = Number(Math.sqrt((prev.node2.tiltX - newN1.tiltX)**2 + (prev.node2.tiltY - newN1.tiltY)**2).toFixed(3));
+                  const diffStrain = Number((prev.node2.strain - newN1.strain).toFixed(1));
+
+                  return {
+                    ...prev,
+                    node1: newN1,
+                    differential: {
+                      displacementMm: diffDisp,
+                      tiltDeg: diffTilt,
+                      strainUe: diffStrain,
+                      vibrationDiff: Number((prev.node2.transientRms - newN1.transientAccel).toFixed(4)),
+                    },
+                    lastUpdated: packet.timestamp || new Date().toISOString(),
+                  };
+                }
+
+                // Node 2 is the active monitoring node driving risk assessment & alerts
+                const smoothDisp = packet.filtered?.smooth_disp_mm ?? packet.displacement_mm ?? 382.0;
+                const smoothTilt = packet.filtered?.smooth_tilt_deg ?? packet.tilt_composite_deg ?? 187.8;
+                const vibAmp = packet.raw?.vib_amp ?? packet.vibration_amp ?? 1.86;
+                const strainUe = packet.raw?.strain_ue ?? packet.strain_ue ?? 0.0;
+                const tiltX = packet.raw?.tilt_x_deg ?? packet.tilt_x_deg ?? 0.0;
+                const tiltY = packet.raw?.tilt_y_deg ?? packet.tilt_y_deg ?? 0.0;
+
+                const newN2 = {
+                  ...prev.node2,
+                  tiltX: tiltX,
+                  tiltY: tiltY,
+                  tiltComposite: smoothTilt,
+                  displacement: smoothDisp,
+                  strain: strainUe,
+                  transientRms: vibAmp,
+                  status: packet.predicted_zone === 'Zone C' ? 'CRITICAL SAG' : packet.predicted_zone === 'Zone B' ? 'ELEVATED TILT' : 'NOMINAL',
                 };
-              }
 
-              // Node 2 is the main monitoring node driving risk assessment & alerts
-              const activeZone =
-                packet.predicted_risk === 'Critical'
-                  ? 'ZONE_C'
-                  : packet.predicted_risk === 'Warning'
-                  ? 'ZONE_B'
-                  : 'ZONE_A';
+                const refDisp = packet.raw?.diff_disp_mm !== undefined
+                  ? (smoothDisp - (packet.filtered?.smooth_diff_disp_mm ?? packet.raw?.diff_disp_mm))
+                  : (packet.ref_displacement_mm ?? prev.node1.displacement);
 
-              const forecastData = packet.forecast || prev.forecast;
+                const diffDisp = packet.filtered?.smooth_diff_disp_mm ?? packet.differential_displacement_mm ?? smoothDisp;
+                const diffTilt = packet.filtered?.smooth_tilt_deg ?? packet.differential_tilt_deg ?? smoothTilt;
+                const diffStrain = Number((strainUe - prev.node1.strain).toFixed(1));
 
-              return {
-                ...prev,
-                node2: {
-                  tiltX: packet.tilt_x_deg ?? prev.node2.tiltX,
-                  tiltY: packet.tilt_y_deg ?? prev.node2.tiltY,
-                  transientRms: packet.vibration_amp ?? prev.node2.transientRms,
-                  differentialTilt: packet.differential_tilt_deg,
-                  status: activeZone === 'ZONE_C' ? 'CRITICAL SAG' : activeZone === 'ZONE_B' ? 'ELEVATED TILT' : 'NOMINAL',
-                },
-                tofDistance: packet.displacement_mm ?? prev.tofDistance,
-                strainGauge: packet.strain_ue ?? prev.strainGauge,
-                currentZone: activeZone,
-                zoneMessage:
+                const activeZone =
+                  packet.predicted_zone === 'Zone C' || packet.current_zone === 'Zone C' || packet.predicted_risk === 'Critical'
+                    ? 'ZONE_C'
+                    : packet.predicted_zone === 'Zone B' || packet.current_zone === 'Zone B' || packet.predicted_risk === 'Warning'
+                    ? 'ZONE_B'
+                    : 'ZONE_A';
+
+                const forecastCurve = packet.forecasting?.forecast_curve_6h || packet.forecast_curve_6h || prev.forecast.forecastTrajectory;
+                const timeToCritical = packet.forecasting?.time_to_collapse_hours ?? packet.time_to_collapse_hours;
+                const collapseMsg = packet.forecasting?.collapse_message || packet.collapse_message || (
                   activeZone === 'ZONE_C'
                     ? 'CRITICAL GROUND MOVEMENT DETECTED ON NODE 2. EVACUATE SECTOR IMMEDIATELY.'
                     : activeZone === 'ZONE_B'
                     ? 'ELEVATED STRATA SAG & TILT DETECTED ON NODE 2. CAUTION ADVISED.'
-                    : 'SUBSURFACE STABLE. ZERO CRITICAL TURBULENCE DETECTED.',
-                forecast: {
-                  ...prev.forecast,
-                  timeToCriticalHours: forecastData.time_to_critical_hours,
-                  statusMessage: forecastData.status_message,
-                  forecastTrajectory: forecastData.forecast_trajectory || prev.forecast.forecastTrajectory,
-                },
-              };
-            });
-          }
-        } catch (e) {
-          // ignore non-json
-        }
-      };
+                    : 'SUBSURFACE STABLE. ZERO CRITICAL TURBULENCE DETECTED.'
+                );
 
-      socket.onerror = () => {
-        // Fallback to internal simulation
-      };
-    } catch (e) {
-      // ignore
+                if (packet.trigger_web_siren === true && !sirenSynthesizer.isPlaying) {
+                  sirenSynthesizer.start();
+                }
+
+                return {
+                  ...prev,
+                  node2: newN2,
+                  differential: {
+                    displacementMm: Number(diffDisp.toFixed(2)),
+                    tiltDeg: Number(diffTilt.toFixed(3)),
+                    strainUe: diffStrain,
+                    vibrationDiff: Number((vibAmp - prev.node1.transientAccel).toFixed(4)),
+                  },
+                  tofDistance: smoothDisp,
+                  strainGauge: strainUe,
+                  confidence: packet.confidence ?? prev.confidence,
+                  currentZone: activeZone,
+                  zoneMessage: collapseMsg,
+                  lastUpdated: packet.timestamp || new Date().toISOString(),
+                  forecast: {
+                    ...prev.forecast,
+                    timeToCriticalHours: timeToCritical,
+                    statusMessage: collapseMsg,
+                    forecastTrajectory: forecastCurve,
+                    criticalThreshold: packet.forecasting?.critical_threshold_mm || 400.0,
+                    activeEngine: 'PYTORCH_2LAYER_LSTM',
+                  },
+                };
+              });
+            }
+          } catch (e) {
+            // ignore non-json
+          }
+        };
+
+        socket.onclose = () => {
+          if (isMounted) {
+            reconnectTimer = setTimeout(connectWs, 2500);
+          }
+        };
+
+        socket.onerror = () => {
+          if (socket) socket.close();
+        };
+      } catch (e) {
+        if (isMounted) {
+          reconnectTimer = setTimeout(connectWs, 2500);
+        }
+      }
     }
 
+    connectWs();
+
     return () => {
+      isMounted = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (socket) socket.close();
     };
   }, [overrideState]);
 
-  // Dynamic 50Hz telemetry simulation loop with small natural sensor noise
+  // Dynamic 50Hz telemetry simulation loop with small natural sensor noise (ONLY if no live WS)
   useEffect(() => {
     const interval = setInterval(() => {
+      // If AUTO mode and live packets were received recently (< 4s), skip synthetic simulation
+      if (overrideState === 'AUTO' && (Date.now() - lastLivePacketTime.current) < 4000) {
+        return;
+      }
+
       setTelemetry((prev) => {
         const noise = (Math.random() - 0.5) * 0.02;
 

@@ -34,9 +34,9 @@ function MainApp() {
 
       <main className="flex-1 w-full">
         {activeTab === 'landing' ? (
-          <LandingPage onOpenAuth={handleOpenAuth} />
+          <LandingPage onOpenAuth={handleOpenAuth} onOpenDashboard={() => setActiveTab('dashboard')} />
         ) : (
-          <DashboardPage />
+          <DashboardPage onBackToStory={() => setActiveTab('landing')} />
         )}
       </main>
 

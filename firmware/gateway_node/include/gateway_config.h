@@ -24,7 +24,7 @@
 // The gateway POSTs JSON telemetry here over HTTP.
 // Change the IP to your laptop/server running the backend.
 // ----------------------------------------------------------
-#define BACKEND_HOST       "10.77.238.224"
+#define BACKEND_HOST       "10.58.28.224"
 #define BACKEND_PORT       8000
 #define BACKEND_INGEST_PATH "/api/v1/telemetry/ingest"
 
