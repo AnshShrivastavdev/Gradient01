@@ -61,6 +61,7 @@ bool postToBackend(const String &jsonPayload);
 void flushOfflineBuffer();
 void bufferPacket(const String &jsonPayload);
 void printWiFiStatus();
+void actuateHardware(const char* risk);
 
 // ----------------------------------------------------------
 // LoRa Initialization & Background State
@@ -151,9 +152,14 @@ void setup() {
   Serial.printf("[INIT] Gateway ID : %s\n", GATEWAY_ID);
   Serial.printf("[INIT] Firmware   : %s\n", FIRMWARE_VERSION);
 
-  // Status LED
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
+  // ----------------------------------------------------------
+  // 0. Initialize Hardware Actuation Pins (LEDs & Buzzer)
+  // ----------------------------------------------------------
+  pinMode(PIN_LED_GREEN, OUTPUT);
+  pinMode(PIN_LED_BLUE, OUTPUT);
+  pinMode(PIN_LED_RED, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  actuateHardware("SAFE");
 
   // ----------------------------------------------------------
   // 1. Initialize LoRa SX1278
@@ -203,6 +209,20 @@ void setup() {
 void loop() {
 
   // ----------------------------------------------------------
+  // Handle USB-Serial Actuation Commands from FastAPI Backend
+  // Format: CMD:ACTUATE:CRITICAL / CMD:ACTUATE:SAFE / CMD:ACTUATE:WARNING
+  // ----------------------------------------------------------
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.startsWith("CMD:ACTUATE:")) {
+      String risk = cmd.substring(12);
+      risk.trim();
+      actuateHardware(risk.c_str());
+    }
+  }
+
+  // ----------------------------------------------------------
   // Maintain WiFi connection (non-blocking)
   // ----------------------------------------------------------
   if (WiFi.status() != WL_CONNECTED) {
@@ -212,7 +232,11 @@ void loop() {
     }
     if (millis() - lastWifiRetry >= WIFI_RETRY_INTERVAL) {
       lastWifiRetry = millis();
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      if (strlen(WIFI_PASSWORD) > 0) {
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      } else {
+        WiFi.begin(WIFI_SSID);
+      }
     }
   } else {
     if (!wifiConnected) {
@@ -251,12 +275,11 @@ void loop() {
   int packetSize = LoRa.parsePacket();
 
   if (packetSize <= 0) {
-    delay(10);
+    yield();
     return;
   }
 
-  // Packet received — blink LED
-  digitalWrite(PIN_STATUS_LED, HIGH);
+  // Packet received
   totalPacketsReceived++;
 
   Serial.println();
@@ -388,7 +411,6 @@ void loop() {
     Serial.printf("[WARN] Unrecognized format: %s\n", payload.c_str());
     Serial.println("[RAW] Packet received but not forwarded.");
     Serial.println("----------------------------------------------");
-    digitalWrite(PIN_STATUS_LED, LOW);
     return;
   }
 
@@ -489,9 +511,8 @@ void loop() {
   }
 
   Serial.println("----------------------------------------------");
-  digitalWrite(PIN_STATUS_LED, LOW);
 
-  delay(10);
+  yield();
 }
 
 // ================================================================
@@ -500,11 +521,47 @@ void loop() {
 void connectWiFi() {
   Serial.printf("[WIFI] Initializing WiFi for SSID: \"%s\"...\n", WIFI_SSID);
 
+  WiFi.persistent(false);
   WiFi.disconnect(true);
   delay(100);
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  // Scan 2.4 GHz spectrum to verify if SSID is visible
+  Serial.println("[WIFI] Scanning 2.4 GHz channels...");
+  int n = WiFi.scanNetworks();
+  bool found = false;
+  if (n <= 0) {
+    Serial.println("[WIFI] No 2.4 GHz networks detected.");
+  } else {
+    Serial.printf("[WIFI] Found %d network(s) on 2.4 GHz:\n", n);
+    for (int i = 0; i < n; ++i) {
+      Serial.printf("   - %-18s | Ch %2d | %3d dBm\n", 
+                    WiFi.SSID(i).c_str(), WiFi.channel(i), WiFi.RSSI(i));
+      if (WiFi.SSID(i) == WIFI_SSID) {
+        found = true;
+      }
+    }
+  }
+
+  if (!found) {
+    Serial.println();
+    Serial.println("****************************************************************");
+    Serial.printf("[WIFI ALERT] \"%s\" was NOT detected in 2.4 GHz scan!\n", WIFI_SSID);
+    Serial.println("[WIFI CAUSE] ESP32 hardware ONLY supports 2.4 GHz (channels 1-13).");
+    Serial.printf("[WIFI FIX]   Your hotspot/router \"%s\" is currently broadcasting on 5 GHz only.\n", WIFI_SSID);
+    Serial.println("             -> Android: Settings > Hotspot > AP Band > 2.4 GHz");
+    Serial.println("             -> iPhone:  Settings > Personal Hotspot > Maximize Compatibility: ON");
+    Serial.println("****************************************************************");
+    Serial.println();
+  }
+
+  if (strlen(WIFI_PASSWORD) > 0) {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  } else {
+    WiFi.begin(WIFI_SSID);
+  }
 
   Serial.printf("[WIFI] Connecting to \"%s\"", WIFI_SSID);
   int retries = 0;
@@ -513,9 +570,6 @@ void connectWiFi() {
     delay(WIFI_RETRY_DELAY);
     Serial.print(".");
     retries++;
-
-    // Blink LED while connecting
-    digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -525,16 +579,42 @@ void connectWiFi() {
   } else {
     wifiConnected = false;
     Serial.println(" FAILED!");
-    Serial.println("[WIFI] Note: ESP32 only supports 2.4 GHz WiFi networks.");
-    Serial.println("[WIFI] Will retry in background every 15s. LoRa packets "
-                   "will be buffered.");
+    Serial.printf("[WIFI] Status code: %d\n", WiFi.status());
+    Serial.println("[WIFI] Will retry in background every 15s. LoRa packets will be buffered.");
   }
+}
 
-  digitalWrite(PIN_STATUS_LED, LOW);
+
+// ================================================================
+// Synchronized Hardware Actuator (LEDs & Active Buzzer)
+// ================================================================
+void actuateHardware(const char* risk) {
+  if (risk == nullptr) risk = "SAFE";
+
+  if (strcmp(risk, "CRITICAL") == 0 || strcmp(risk, "Zone C") == 0) {
+    digitalWrite(PIN_LED_GREEN, LOW);
+    digitalWrite(PIN_LED_BLUE, LOW);
+    digitalWrite(PIN_LED_RED, HIGH);
+    digitalWrite(PIN_BUZZER, HIGH);
+    Serial.println("[ACTUATION] -> CRITICAL: RED ON | BUZZER ON");
+  } else if (strcmp(risk, "WARNING") == 0 || strcmp(risk, "Zone B") == 0) {
+    digitalWrite(PIN_LED_GREEN, LOW);
+    digitalWrite(PIN_LED_BLUE, HIGH);
+    digitalWrite(PIN_LED_RED, LOW);
+    digitalWrite(PIN_BUZZER, LOW);
+    Serial.println("[ACTUATION] -> WARNING: BLUE ON | BUZZER OFF");
+  } else {
+    // SAFE or Zone A
+    digitalWrite(PIN_LED_GREEN, HIGH);
+    digitalWrite(PIN_LED_BLUE, LOW);
+    digitalWrite(PIN_LED_RED, LOW);
+    digitalWrite(PIN_BUZZER, LOW);
+    Serial.println("[ACTUATION] -> SAFE: GREEN ON | BUZZER OFF");
+  }
 }
 
 // ================================================================
-// HTTP POST to FastAPI Backend
+// HTTP POST to FastAPI Backend (Non-blocking low-latency)
 // ================================================================
 bool postToBackend(const String &jsonPayload) {
   if (WiFi.status() != WL_CONNECTED) {
@@ -551,8 +631,8 @@ bool postToBackend(const String &jsonPayload) {
   url += BACKEND_INGEST_PATH;
 
   http.begin(url);
-  http.setConnectTimeout(800); // Prevent blocking the main loop for 5000ms
-  http.setTimeout(800);
+  http.setConnectTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(HTTP_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
 
   int httpCode = http.POST(jsonPayload);
@@ -560,6 +640,14 @@ bool postToBackend(const String &jsonPayload) {
   if (httpCode == 200 || httpCode == 201) {
     String response = http.getString();
     Serial.printf("[HTTP] POST OK (%d) -> %s\n", httpCode, response.c_str());
+
+    // Synchronized Hardware Actuation
+    JsonDocument respDoc;
+    DeserializationError err = deserializeJson(respDoc, response);
+    if (!err) {
+      const char* risk = respDoc["risk_level"] | respDoc["alert_zone"] | "SAFE";
+      actuateHardware(risk);
+    }
     http.end();
     return true;
   } else {

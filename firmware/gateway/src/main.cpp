@@ -60,6 +60,7 @@ bool postToBackend(const String &jsonPayload);
 void flushOfflineBuffer();
 void bufferPacket(const String &jsonPayload);
 void printWiFiStatus();
+void actuateHardware(const char* risk);
 
 // ================================================================
 // SETUP
@@ -75,9 +76,14 @@ void setup() {
   Serial.printf("[INIT] Gateway ID : %s\n", GATEWAY_ID);
   Serial.printf("[INIT] Firmware   : %s\n", FIRMWARE_VERSION);
 
-  // Status LED
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
+  // ----------------------------------------------------------
+  // 0. Initialize Hardware Actuation Pins (LEDs & Buzzer)
+  // ----------------------------------------------------------
+  pinMode(PIN_LED_GREEN, OUTPUT);
+  pinMode(PIN_LED_BLUE, OUTPUT);
+  pinMode(PIN_LED_RED, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  actuateHardware("SAFE");
 
   // ----------------------------------------------------------
   // 1. Initialize WiFi
@@ -106,10 +112,9 @@ void setup() {
     Serial.println("        DIO0 -> GPIO26");
     Serial.println("        Antenna connected!");
 
-    // Blink LED rapidly to indicate LoRa failure
     while (true) {
-      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-      delay(200);
+      Serial.println("[ERROR] LoRa initialization failed. Check wiring (3.3V/GND/SPI)...");
+      delay(2000);
     }
   }
 
@@ -166,6 +171,20 @@ void setup() {
 void loop() {
 
   // ----------------------------------------------------------
+  // Handle USB-Serial Actuation Commands from FastAPI Backend
+  // Format: CMD:ACTUATE:CRITICAL / CMD:ACTUATE:SAFE / CMD:ACTUATE:WARNING
+  // ----------------------------------------------------------
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.startsWith("CMD:ACTUATE:")) {
+      String risk = cmd.substring(12);
+      risk.trim();
+      actuateHardware(risk.c_str());
+    }
+  }
+
+  // ----------------------------------------------------------
   // Maintain WiFi connection (non-blocking)
   // ----------------------------------------------------------
   if (WiFi.status() != WL_CONNECTED) {
@@ -194,12 +213,11 @@ void loop() {
   int packetSize = LoRa.parsePacket();
 
   if (packetSize <= 0) {
-    delay(10);
+    yield();
     return;
   }
 
-  // Packet received — blink LED
-  digitalWrite(PIN_STATUS_LED, HIGH);
+  // Packet received
   totalPacketsReceived++;
 
   Serial.println();
@@ -317,7 +335,6 @@ void loop() {
     Serial.printf("[WARN] Unrecognized format: %s\n", payload.c_str());
     Serial.println("[RAW] Packet received but not forwarded.");
     Serial.println("----------------------------------------------");
-    digitalWrite(PIN_STATUS_LED, LOW);
     return;
   }
 
@@ -404,9 +421,8 @@ void loop() {
   }
 
   Serial.println("----------------------------------------------");
-  digitalWrite(PIN_STATUS_LED, LOW);
 
-  delay(10);
+  yield();
 }
 
 // ================================================================
@@ -425,10 +441,6 @@ void connectWiFi() {
     Serial.print(".");
     retries++;
 
-    // Blink LED while connecting
-    digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-  }
-
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnected = true;
     Serial.println(" CONNECTED!");
@@ -438,12 +450,38 @@ void connectWiFi() {
     Serial.println(" FAILED!");
     Serial.println("[WIFI] Will retry in main loop. LoRa packets will be buffered offline.");
   }
-
-  digitalWrite(PIN_STATUS_LED, LOW);
 }
 
 // ================================================================
-// HTTP POST to FastAPI Backend
+// Synchronized Hardware Actuator (LEDs & Active Buzzer)
+// ================================================================
+void actuateHardware(const char* risk) {
+  if (risk == nullptr) risk = "SAFE";
+
+  if (strcmp(risk, "CRITICAL") == 0 || strcmp(risk, "Zone C") == 0) {
+    digitalWrite(PIN_LED_GREEN, LOW);
+    digitalWrite(PIN_LED_BLUE, LOW);
+    digitalWrite(PIN_LED_RED, HIGH);
+    digitalWrite(PIN_BUZZER, HIGH);
+    Serial.println("[ACTUATION] -> CRITICAL: RED ON | BUZZER ON");
+  } else if (strcmp(risk, "WARNING") == 0 || strcmp(risk, "Zone B") == 0) {
+    digitalWrite(PIN_LED_GREEN, LOW);
+    digitalWrite(PIN_LED_BLUE, HIGH);
+    digitalWrite(PIN_LED_RED, LOW);
+    digitalWrite(PIN_BUZZER, LOW);
+    Serial.println("[ACTUATION] -> WARNING: BLUE ON | BUZZER OFF");
+  } else {
+    // SAFE or Zone A
+    digitalWrite(PIN_LED_GREEN, HIGH);
+    digitalWrite(PIN_LED_BLUE, LOW);
+    digitalWrite(PIN_LED_RED, LOW);
+    digitalWrite(PIN_BUZZER, LOW);
+    Serial.println("[ACTUATION] -> SAFE: GREEN ON | BUZZER OFF");
+  }
+}
+
+// ================================================================
+// HTTP POST to FastAPI Backend (Non-blocking low-latency)
 // ================================================================
 bool postToBackend(const String &jsonPayload) {
   if (WiFi.status() != WL_CONNECTED) {
@@ -468,6 +506,14 @@ bool postToBackend(const String &jsonPayload) {
   if (httpCode == 200 || httpCode == 201) {
     String response = http.getString();
     Serial.printf("[HTTP] POST OK (%d) -> %s\n", httpCode, response.c_str());
+
+    // Synchronized Hardware Actuation
+    JsonDocument respDoc;
+    DeserializationError err = deserializeJson(respDoc, response);
+    if (!err) {
+      const char* risk = respDoc["risk_level"] | respDoc["alert_zone"] | "SAFE";
+      actuateHardware(risk);
+    }
     http.end();
     return true;
   } else {

@@ -29,7 +29,7 @@
 #endif
 
 #define SAMPLING_RATE_HZ   1      // 1 Hz continuous telemetry
-#define PIN_STATUS_LED     2      // Built-in LED on ESP32 DevKit V1
+// Note: Hardware configuration uses NO LED or Buzzer pins
 
 // ==========================================
 // LoRa SX1278 SPI Pinout & Frequency (VSPI)

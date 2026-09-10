@@ -1,90 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-
-// ============================================================================
-// Web Audio API Emergency Siren Synthesizer
-// Synthesizes an alternating dual-tone industrial emergency alarm (850Hz / 550Hz)
-// ============================================================================
-class EmergencySirenSynthesizer {
-  constructor() {
-    this.audioCtx = null;
-    this.oscillator = null;
-    this.gainNode = null;
-    this.isPlaying = false;
-    this.pitchInterval = null;
-    this.currentFrequency = 850;
-  }
-
-  init() {
-    if (!this.audioCtx) {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextClass) {
-        this.audioCtx = new AudioContextClass();
-      }
-    }
-  }
-
-  start() {
-    if (this.isPlaying) return;
-    this.init();
-    if (!this.audioCtx) return;
-
-    if (this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume();
-    }
-
-    try {
-      this.oscillator = this.audioCtx.createOscillator();
-      this.gainNode = this.audioCtx.createGain();
-
-      this.oscillator.type = 'sawtooth';
-      this.oscillator.frequency.setValueAtTime(850, this.audioCtx.currentTime);
-
-      // Volume envelope
-      this.gainNode.gain.setValueAtTime(0.001, this.audioCtx.currentTime);
-      this.gainNode.gain.exponentialRampToValueAtTime(0.25, this.audioCtx.currentTime + 0.1);
-
-      this.oscillator.connect(this.gainNode);
-      this.gainNode.connect(this.audioCtx.destination);
-      this.oscillator.start();
-      this.isPlaying = true;
-
-      // Alternating 850Hz / 550Hz frequency shift every 380ms
-      this.pitchInterval = setInterval(() => {
-        if (!this.oscillator || !this.audioCtx) return;
-        this.currentFrequency = this.currentFrequency === 850 ? 550 : 850;
-        this.oscillator.frequency.setValueAtTime(this.currentFrequency, this.audioCtx.currentTime);
-      }, 380);
-    } catch (e) {
-      console.warn('[AUDIO] AudioContext playback issue:', e);
-    }
-  }
-
-  stop() {
-    if (!this.isPlaying) return;
-    if (this.pitchInterval) {
-      clearInterval(this.pitchInterval);
-      this.pitchInterval = null;
-    }
-    if (this.oscillator && this.audioCtx) {
-      try {
-        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, this.audioCtx.currentTime);
-        this.gainNode.gain.exponentialRampToValueAtTime(0.0001, this.audioCtx.currentTime + 0.08);
-        setTimeout(() => {
-          try {
-            this.oscillator?.stop();
-            this.oscillator?.disconnect();
-          } catch (e) {}
-          this.oscillator = null;
-        }, 90);
-      } catch (e) {
-        this.oscillator = null;
-      }
-    }
-    this.isPlaying = false;
-  }
-}
-
-const sirenSynth = new EmergencySirenSynthesizer();
+import sirenSynthesizer from '../services/siren';
 
 export default function DashboardView() {
   // WebSocket State
@@ -93,10 +8,18 @@ export default function DashboardView() {
   const [packetCounter, setPacketCounter] = useState(0);
   const [selectedNode, setSelectedNode] = useState('NODE_02');
 
-  // Mute toggle for web siren
+  // Mute toggle & audio state for web siren
   const [isMuted, setIsMuted] = useState(false);
   const [sirenActive, setSirenActive] = useState(false);
-  const [lastAlertNotificationTime, setLastAlertNotificationTime] = useState(0);
+  const [isTaring, setIsTaring] = useState(false);
+
+  // Stable references for WebSocket listener
+  const selectedNodeRef = useRef(selectedNode);
+  const lastAlertNotificationTimeRef = useRef(0);
+
+  useEffect(() => {
+    selectedNodeRef.current = selectedNode;
+  }, [selectedNode]);
 
   // Live Telemetry Cache (by node_id)
   const [nodesData, setNodesData] = useState({
@@ -161,9 +84,9 @@ export default function DashboardView() {
     }
   }, []);
 
-  // Establish & Maintain Resilient WebSocket Link to FastAPI
+  // Establish & Maintain Resilient WebSocket Link to FastAPI (Connects ONCE, zero teardown loops)
   useEffect(() => {
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
+    const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/ws/telemetry';
 
     function connect() {
       try {
@@ -187,33 +110,48 @@ export default function DashboardView() {
 
             if (data.node_id) {
               setPacketCounter((prev) => prev + 1);
-              setNodesData((prev) => ({
-                ...prev,
-                [data.node_id]: {
-                  ...prev[data.node_id],
-                  ...data
-                }
-              }));
+              const targetNode = (data.node_id === 'NODE_A2' || data.node_id === 'NODE_B1') ? 'NODE_02' : data.node_id;
 
-              // Check web siren trigger condition
-              if (data.trigger_web_siren === true) {
+              setNodesData((prev) => {
+                const existing = prev[targetNode] || {};
+                return {
+                  ...prev,
+                  [data.node_id]: { ...existing, ...data, source: 'LIVE_TELEMETRY' },
+                  [targetNode]: { ...existing, ...data, node_id: targetNode, source: 'LIVE_TELEMETRY' }
+                };
+              });
+
+              // Check web siren trigger condition (Strict Zone C / Critical state)
+              const isCritical = (
+                data.trigger_web_siren === true ||
+                data.current_risk === 'CRITICAL' ||
+                data.predicted_zone === 'Zone C' ||
+                data.current_zone === 'Zone C' ||
+                data.zone_id === 'Zone C'
+              );
+
+              if (isCritical) {
                 setSirenActive(true);
+                sirenSynthesizer.reportZone('DashboardView', 'Zone C');
 
-                // Fire desktop notification (debounced 10s)
+                // Fire desktop notification (debounced 10s via ref)
                 const now = Date.now();
-                if (now - lastAlertNotificationTime > 10000) {
-                  setLastAlertNotificationTime(now);
+                if (now - lastAlertNotificationTimeRef.current > 10000) {
+                  lastAlertNotificationTimeRef.current = now;
                   if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
                     new Notification('CRITICAL COAL MINE SUBSIDENCE ALERT', {
-                      body: `Station ${data.node_id} reported ${data.current_zone || 'CRITICAL'}! Collapse estimated: ${data.time_to_collapse_hours ? data.time_to_collapse_hours + 'h' : 'IMMINENT'}. Evacuate hazardous sector!`,
+                      body: `Station ${data.node_id} reported CRITICAL / Zone C! Evacuate hazardous sector!`,
                       icon: '/favicon.ico',
                       tag: 'subsidence-critical-alarm'
                     });
                   }
                 }
-              } else if (data.node_id === selectedNode && !data.trigger_web_siren) {
-                // If current selected node has returned to nominal, stop siren
-                setSirenActive(false);
+              } else if (data.node_id === selectedNodeRef.current || targetNode === selectedNodeRef.current) {
+                // Monitored station is stable / non-critical -> stop siren wail
+                if (!data.trigger_web_siren && data.current_risk !== 'CRITICAL' && data.predicted_zone !== 'Zone C') {
+                  setSirenActive(false);
+                  sirenSynthesizer.reportZone('DashboardView', data.predicted_zone || 'Zone A');
+                }
               }
             }
           } catch (err) {
@@ -241,18 +179,30 @@ export default function DashboardView() {
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsRef.current) wsRef.current.close();
-      sirenSynth.stop();
+      sirenSynthesizer.stop(true);
     };
-  }, [lastAlertNotificationTime, selectedNode]);
+  }, []);
 
-  // Manage Web Audio Siren Loop State
+  // Sync mute state to continuous siren service
+  useEffect(() => {
+    sirenSynthesizer.setMuted(isMuted);
+  }, [isMuted]);
+
+  // Manage Web Audio Siren Loop State (Continuous wail on Zone C)
   useEffect(() => {
     if (sirenActive && !isMuted) {
-      sirenSynth.start();
-    } else {
-      sirenSynth.stop();
+      sirenSynthesizer.start();
+    } else if (!sirenActive) {
+      sirenSynthesizer.stop(false);
     }
   }, [sirenActive, isMuted]);
+
+  // Clean shutdown on component unmount
+  useEffect(() => {
+    return () => {
+      sirenSynthesizer.stop(true);
+    };
+  }, []);
 
   // Active Station Telemetry
   const currentData = nodesData[selectedNode] || nodesData['NODE_02'];
@@ -300,14 +250,42 @@ export default function DashboardView() {
 
   // 6-Hour Forecast Chart Points & Scales
   const forecastPoints = useMemo(() => {
-    const trajectory = currentData.forecast_curve_6h || [12.4, 13.0, 13.8, 14.7, 15.8, 17.0];
-    const currentDisp = currentData.displacement_mm || 12.4;
+    const trajectory = currentData.forecast_curve_6h || currentData.forecast_curve || [0, 0, 0, 0, 0, 0];
+    const currentDisp = currentData.displacement_mm || 0.0;
     return [currentDisp, ...trajectory];
-  }, [currentData.forecast_curve_6h, currentData.displacement_mm]);
+  }, [currentData.forecast_curve_6h, currentData.forecast_curve, currentData.displacement_mm]);
+
+  // Helper to re-zero / tare baseline datum
+  const handleTareBaseline = async () => {
+    try {
+      setIsTaring(true);
+      const res = await fetch(`http://localhost:8000/api/v1/telemetry/tare?node_id=${selectedNode}`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[TARE] Baseline zeroed successfully:', data);
+        setSirenActive(false);
+        sirenSynthesizer.reportZone('DashboardView', 'Zone A');
+      }
+    } catch (err) {
+      console.warn('[TARE] Error zeroing baseline:', err);
+    } finally {
+      setTimeout(() => setIsTaring(false), 600);
+    }
+  };
 
   // Helper to toggle siren test
   const handleToggleSirenTest = () => {
-    setSirenActive((prev) => !prev);
+    setSirenActive((prev) => {
+      const next = !prev;
+      if (next) {
+        sirenSynthesizer.reportZone('DashboardView', 'Zone C');
+      } else {
+        sirenSynthesizer.reportZone('DashboardView', 'Zone A');
+      }
+      return next;
+    });
   };
 
   return (
@@ -331,7 +309,7 @@ export default function DashboardView() {
           </p>
         </div>
 
-        {/* Live Stream Status & Mute Controls */}
+        {/* Live Stream Status, Tare & Siren Controls */}
         <div className="flex flex-wrap items-center gap-3">
           {/* WebSocket Status Indicator */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono ${
@@ -369,6 +347,20 @@ export default function DashboardView() {
             </button>
           </div>
 
+          {/* Re-Zero / Tare Baseline Datum Button */}
+          <button
+            onClick={handleTareBaseline}
+            disabled={isTaring}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all shadow-sm active:scale-95 ${
+              isTaring
+                ? 'bg-amber-950/70 border-amber-500 text-amber-300 animate-pulse'
+                : 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 hover:bg-emerald-900/60'
+            }`}
+            title="Re-zero baseline datum to current resting position to eliminate mechanical resting offset"
+          >
+            <span>{isTaring ? '⏳ ZEROING...' : '🎯 ZERO BASELINE'}</span>
+          </button>
+
           {/* Audio Siren Mute / Test Toggle */}
           <button
             onClick={() => setIsMuted((prev) => !prev)}
@@ -376,7 +368,7 @@ export default function DashboardView() {
               isMuted
                 ? 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'
                 : sirenActive
-                ? 'bg-red-600 text-white font-bold animate-pulse border-red-400'
+                ? 'bg-red-600 text-white font-bold animate-pulse border-red-400 shadow-lg shadow-red-900/50'
                 : 'bg-blue-950/60 border-blue-600/50 text-blue-300 hover:bg-blue-900/50'
             }`}
             title="Toggle siren sound output"
@@ -386,7 +378,11 @@ export default function DashboardView() {
 
           <button
             onClick={handleToggleSirenTest}
-            className="px-2.5 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-mono border border-gray-700"
+            className={`px-2.5 py-1.5 rounded text-xs font-mono border transition-all ${
+              sirenActive
+                ? 'bg-red-700 hover:bg-red-600 text-white font-bold border-red-500'
+                : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700'
+            }`}
           >
             {sirenActive ? 'STOP SIREN' : 'TEST SIREN'}
           </button>

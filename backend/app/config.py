@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ML_ENCODER_PATH: str = os.getenv("ML_ENCODER_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "ml_engine", "artifacts", "label_encoder.joblib"))
     FORECASTER_PTH_PATH: str = os.getenv("FORECASTER_PTH_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "ml_engine", "artifacts", "displacement_forecaster.pth"))
     FORECASTER_SCALER_PATH: str = os.getenv("FORECASTER_SCALER_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "ml_engine", "artifacts", "forecaster_scaler.joblib"))
-    COLLAPSE_THRESHOLD_MM: float = float(os.getenv("COLLAPSE_THRESHOLD_MM", 400.0))
+    COLLAPSE_THRESHOLD_MM: float = float(os.getenv("COLLAPSE_THRESHOLD_MM", 25.0))
     
     # Critical Geotechnical Alert Thresholds
     CRITICAL_STRAIN_UE: float = 750.0

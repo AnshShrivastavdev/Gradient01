@@ -135,12 +135,12 @@ export const TelemetryProvider = ({ children }) => {
                 }
 
                 // Node 2 is the active monitoring node driving risk assessment & alerts
-                const smoothDisp = packet.filtered?.smooth_disp_mm ?? packet.displacement_mm ?? 382.0;
-                const smoothTilt = packet.filtered?.smooth_tilt_deg ?? packet.tilt_composite_deg ?? 187.8;
-                const vibAmp = packet.raw?.vib_amp ?? packet.vibration_amp ?? 1.86;
-                const strainUe = packet.raw?.strain_ue ?? packet.strain_ue ?? 0.0;
-                const tiltX = packet.raw?.tilt_x_deg ?? packet.tilt_x_deg ?? 0.0;
-                const tiltY = packet.raw?.tilt_y_deg ?? packet.tilt_y_deg ?? 0.0;
+                const smoothDisp = packet.displacement_mm ?? packet.filtered?.smooth_disp_mm ?? 0.0;
+                const smoothTilt = packet.tilt_composite_deg ?? packet.filtered?.smooth_tilt_deg ?? 0.0;
+                const vibAmp = packet.vibration_amp ?? packet.raw?.vib_amp ?? 0.015;
+                const strainUe = packet.strain_ue ?? packet.raw?.strain_ue ?? 0.0;
+                const tiltX = packet.tilt_x_deg ?? packet.raw?.tilt_x_deg ?? 0.0;
+                const tiltY = packet.tilt_y_deg ?? packet.raw?.tilt_y_deg ?? 0.0;
 
                 const newN2 = {
                   ...prev.node2,
@@ -162,9 +162,9 @@ export const TelemetryProvider = ({ children }) => {
                 const diffStrain = Number((strainUe - prev.node1.strain).toFixed(1));
 
                 const activeZone =
-                  packet.predicted_zone === 'Zone C' || packet.current_zone === 'Zone C' || packet.predicted_risk === 'Critical'
+                  packet.predicted_zone === 'Zone C' || packet.current_zone === 'Zone C' || packet.predicted_risk === 'CRITICAL' || packet.current_risk === 'CRITICAL'
                     ? 'ZONE_C'
-                    : packet.predicted_zone === 'Zone B' || packet.current_zone === 'Zone B' || packet.predicted_risk === 'Warning'
+                    : packet.predicted_zone === 'Zone B' || packet.current_zone === 'Zone B' || packet.predicted_risk === 'WARNING' || packet.current_risk === 'WARNING'
                     ? 'ZONE_B'
                     : 'ZONE_A';
 
@@ -178,8 +178,19 @@ export const TelemetryProvider = ({ children }) => {
                     : 'SUBSURFACE STABLE. ZERO CRITICAL TURBULENCE DETECTED.'
                 );
 
-                if (packet.trigger_web_siren === true && !sirenSynthesizer.isPlaying) {
-                  sirenSynthesizer.start();
+                // Strictly control emergency siren based on active critical state
+                const isCriticalPacket = (
+                  packet.trigger_web_siren === true ||
+                  packet.predicted_zone === 'Zone C' ||
+                  packet.current_zone === 'Zone C' ||
+                  packet.current_risk === 'CRITICAL' ||
+                  activeZone === 'ZONE_C'
+                );
+
+                if (isCriticalPacket) {
+                  sirenSynthesizer.reportZone('TelemetryContext', 'Zone C');
+                } else {
+                  sirenSynthesizer.reportZone('TelemetryContext', activeZone);
                 }
 
                 return {
@@ -238,14 +249,13 @@ export const TelemetryProvider = ({ children }) => {
     };
   }, [overrideState]);
 
-  // Dynamic 50Hz telemetry simulation loop with small natural sensor noise (ONLY if no live WS)
+  // Simulation loop ONLY for manual drill tests (TEST_ZONE_A/B/C); purged for AUTO mode
   useEffect(() => {
-    const interval = setInterval(() => {
-      // If AUTO mode and live packets were received recently (< 4s), skip synthetic simulation
-      if (overrideState === 'AUTO' && (Date.now() - lastLivePacketTime.current) < 2000) {
-        return;
-      }
+    if (overrideState === 'AUTO') {
+      return;
+    }
 
+    const interval = setInterval(() => {
       setTelemetry((prev) => {
         const noise = (Math.random() - 0.5) * 0.02;
 
@@ -365,18 +375,19 @@ export const TelemetryProvider = ({ children }) => {
     });
   }, [telemetry.tofDistance]);
 
-  // Handle siren auto-trigger on ZONE_C or when TTF <= 4.5 hours
+  // Handle siren auto-trigger strictly on ZONE_C / Zone C only
   useEffect(() => {
-    const isCritical =
+    const isCritical = (
       telemetry.currentZone === 'ZONE_C' ||
-      (telemetry.forecast.timeToCriticalHours !== null && telemetry.forecast.timeToCriticalHours <= 4.5);
+      telemetry.currentZone === 'Zone C'
+    );
 
     if (isCritical) {
-      sirenSynthesizer.start();
+      sirenSynthesizer.reportZone('TelemetryContext', 'Zone C');
     } else {
-      sirenSynthesizer.stop();
+      sirenSynthesizer.reportZone('TelemetryContext', telemetry.currentZone || 'Zone A');
     }
-  }, [telemetry.currentZone, telemetry.forecast.timeToCriticalHours]);
+  }, [telemetry.currentZone]);
 
   const triggerDrillOverride = useCallback((mode) => {
     setOverrideState(mode);

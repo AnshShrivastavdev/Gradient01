@@ -51,7 +51,7 @@
 #define PIN_I2C_SCL      22
 
 // Optional onboard status indicator
-#define PIN_STATUS_LED   2
+// #define PIN_STATUS_LED   2  // Deactivated: No LED or Buzzer pins used
 
 static MPU6500Driver mpu;
 static bool mpuOnline = false;
@@ -72,9 +72,6 @@ void setup() {
   Serial.printf(" [INIT] Node ID  : %s\n", NODE_ID);
   Serial.printf(" [INIT] Zone ID  : %s\n", ZONE_ID);
   Serial.printf(" [INIT] Rate     : %d Hz\n", SAMPLING_RATE_HZ);
-
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
 
   // ----------------------------------------------------------
   // 1. Initialize I2C Bus for MPU6500
@@ -102,8 +99,8 @@ void setup() {
     Serial.println("[ERROR] LoRa SX1278 initialization FAILED!");
     Serial.println("        Check NSS=5, RST=14, DIO0=26, SCK=18, MISO=19, MOSI=23");
     while (true) {
-      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-      delay(200);
+      Serial.println("[ERROR] LoRa hardware not responding. Check wiring (3.3V/GND/SPI)...");
+      delay(2000);
     }
   }
 
@@ -174,13 +171,9 @@ void loop() {
     // --------------------------------------------------------
     // 3. Transmit over LoRa Radio
     // --------------------------------------------------------
-    digitalWrite(PIN_STATUS_LED, HIGH);
-
     LoRa.beginPacket();
     LoRa.print(jsonPayload);
     LoRa.endPacket();
-
-    digitalWrite(PIN_STATUS_LED, LOW);
 
     // --------------------------------------------------------
     // 4. Output to USB Serial

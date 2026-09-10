@@ -6,8 +6,8 @@ export const AlertBanner = () => {
   const { telemetry } = useTelemetryContext();
   const nodes = Object.values(telemetry);
 
-  const criticalNode = nodes.find((n) => n.predicted_risk === 'Critical');
-  const warningNode = nodes.find((n) => n.predicted_risk === 'Warning');
+  const criticalNode = nodes.find((n) => n.predicted_risk === 'Critical' || n.current_risk === 'CRITICAL' || n.predicted_zone === 'Zone C' || n.trigger_web_siren === true);
+  const warningNode = nodes.find((n) => n.predicted_risk === 'Warning' || n.current_risk === 'WARNING' || n.predicted_zone === 'Zone B');
 
   if (criticalNode) {
     return (

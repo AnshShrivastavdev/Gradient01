@@ -215,8 +215,7 @@ class SerialGatewayReader:
                     now_t = time.time()
                     
                     if "PermissionError" in err_str or "Access is denied" in err_str:
-                        if not self._has_printed_lock_banner or (now_t - self._last_lock_warn_time) > 20.0:
-                            self._last_lock_warn_time = now_t
+                        if not self._has_printed_lock_banner:
                             self._has_printed_lock_banner = True
                             safe_print(
                                 f"\n{CLR_BOLD}{CLR_YELLOW}"
@@ -236,14 +235,12 @@ class SerialGatewayReader:
                             self._last_lock_warn_time = now_t
                             logger.warning(f"Failed to open '{target_port}': {err_str}. Retrying in {reconnect_delay}s...")
                     
-                    self._emit_synthetic_tick()
                     time.sleep(reconnect_delay)
                     continue
                 except Exception as ex:
                     self._close_serial()
                     self.last_error_message = str(ex)
                     logger.error(f"Unexpected serial connection error: {ex}. Retrying in {reconnect_delay}s...")
-                    self._emit_synthetic_tick()
                     time.sleep(reconnect_delay)
                     continue
 
@@ -272,19 +269,59 @@ class SerialGatewayReader:
                 logger.error(f"Error reading serial line: {ex}")
                 time.sleep(0.1)
 
+    def send_actuation_command(self, risk: str):
+        """Sends synchronized hardware actuation command (LEDs + Buzzer) back to ESP32 Gateway over USB Serial."""
+        if self.serial_conn and self.serial_conn.is_open:
+            try:
+                cmd = f"CMD:ACTUATE:{risk.upper()}\n".encode("utf-8")
+                self.serial_conn.write(cmd)
+                self.serial_conn.flush()
+            except Exception as e:
+                logger.warning(f"Failed to send serial actuation command: {e}")
+
+    def list_available_com_ports(self) -> List[str]:
+        """Lists port names for detected serial ports."""
+        return [p["port"] for p in self.detect_available_ports()]
+
+    async def switch_mode(self, mode: str, port: Optional[str] = None) -> Dict[str, Any]:
+        """Switches mode between SIMULATION and HARDWARE_SERIAL."""
+        mode_upper = mode.upper()
+        if "SIMULAT" in mode_upper:
+            settings.SIMULATION_MODE = True
+            self.gateway_info["status"] = "SIMULATION_MODE"
+            active_mode = "SIMULATION"
+        else:
+            settings.SIMULATION_MODE = False
+            active_mode = "HARDWARE_SERIAL"
+            if port:
+                settings.SERIAL_PORT = port
+
+        return {
+            "status": "SUCCESS",
+            "active_mode": active_mode,
+            "port": settings.SERIAL_PORT,
+            "baud_rate": settings.BAUD_RATE
+        }
+
     def _sanitize_and_parse_line(self, raw_line: str) -> Optional[Dict[str, Any]]:
         """
         Extracts JSON substrings between '{' and '}', strips debug prefixes,
-        and standardizes the incoming telemetry dictionary for single-node NODE_02 ingestion.
+        and standardizes the incoming telemetry dictionary for ingestion.
         """
-        start_idx = raw_line.find("{")
-        end_idx = raw_line.rfind("}")
+        stripped = raw_line.strip()
+        # Strictly ignore gateway debug logs like "[RX] Payload : ...", "[DATA] ...", etc.
+        # Genuine telemetry packets and announcements from ESP32 gateway are serialized JSON objects
+        if stripped.startswith("["):
+            return None
+
+        start_idx = stripped.find("{")
+        end_idx = stripped.rfind("}")
 
         if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
             # Gateway/node debug messages (e.g., [RX] PACKET...)
             return None
 
-        json_str = raw_line[start_idx:end_idx + 1]
+        json_str = stripped[start_idx:end_idx + 1]
 
         try:
             doc = json.loads(json_str)
@@ -297,21 +334,21 @@ class SerialGatewayReader:
             self.gateway_info.update(doc)
             return {"event": doc.get("event"), "gateway_id": doc.get("gateway_id", "GATEWAY_SURFACE_01"), "raw": doc}
 
-        # Single-node ingestion: defaults to NODE_02 (MONITORING)
-        node_id = str(doc.get("node_id") or doc.get("node") or "NODE_02").strip()
+        # Node identification and role mapping
+        node_id = str(doc.get("node_id") or doc.get("node") or doc.get("id") or "NODE_02").strip()
         role = str(doc.get("role") or ("REFERENCE" if "1" in node_id else "MONITORING"))
-        zone_id = str(doc.get("zone_id") or doc.get("local_zone") or "Zone B")
+        zone_id = str(doc.get("zone_id") or doc.get("local_zone") or ("Zone A" if role == "REFERENCE" else "Zone B"))
 
-        # Telemetry metrics with fallback aliases
-        tilt_x = self._safe_float(doc.get("tilt_x_deg") or doc.get("tilt_x"), default=0.0)
-        tilt_y = self._safe_float(doc.get("tilt_y_deg") or doc.get("tilt_y"), default=90.5)
-        disp_mm = self._safe_float(doc.get("displacement_mm") or doc.get("disp_mm"), default=382.0)
-        strain_ue = self._safe_float(doc.get("strain_ue") or doc.get("strain"), default=0.0)
-        vib_amp = self._safe_float(doc.get("vibration_amp") or doc.get("vib"), default=1.86)
-        
-        ref_disp = self._safe_float(doc.get("ref_displacement_mm"), default=0.0)
-        diff_disp = self._safe_float(doc.get("differential_displacement_mm"), default=disp_mm - ref_disp)
-        diff_tilt = self._safe_float(doc.get("differential_tilt_deg"), default=math.sqrt(tilt_x**2 + tilt_y**2))
+        # Telemetry metrics with explicit None checks to preserve legitimate 0.0 values (supporting full & short LoRa keys)
+        tilt_x = self._extract_metric(doc, ["tilt_x_deg", "tilt_x", "tx"], default=0.0)
+        tilt_y = self._extract_metric(doc, ["tilt_y_deg", "tilt_y", "ty"], default=0.0)
+        disp_mm = self._extract_metric(doc, ["displacement_mm", "disp_mm", "d"], default=0.0)
+        strain_ue = self._extract_metric(doc, ["strain_ue", "strain", "st"], default=0.0)
+        vib_amp = self._extract_metric(doc, ["vibration_amp", "vib", "v"], default=0.015)
+
+        ref_disp = self._extract_metric(doc, ["ref_displacement_mm"], default=0.0)
+        diff_disp = self._extract_metric(doc, ["differential_displacement_mm", "diff_disp_mm", "di"], default=disp_mm - ref_disp)
+        diff_tilt = self._extract_metric(doc, ["differential_tilt_deg"], default=round(math.sqrt(tilt_x**2 + tilt_y**2), 3))
 
         # Composite tilt
         tilt_composite = round(math.sqrt(tilt_x**2 + tilt_y**2), 3)
@@ -344,6 +381,19 @@ class SerialGatewayReader:
         return normalized_packet
 
     @staticmethod
+    def _extract_metric(doc: Dict[str, Any], keys: List[str], default: float = 0.0) -> float:
+        """Safely extracts float from dictionary keys preserving legitimate 0.0 values."""
+        for k in keys:
+            if k in doc and doc[k] is not None:
+                try:
+                    f = float(doc[k])
+                    if not (math.isnan(f) or math.isinf(f)):
+                        return f
+                except (ValueError, TypeError):
+                    continue
+        return default
+
+    @staticmethod
     def _safe_float(val: Any, default: float = 0.0) -> float:
         if val is None:
             return default
@@ -357,16 +407,16 @@ class SerialGatewayReader:
         """
         Prints clean formatted/colored telemetry directly to the backend terminal
         acting as our live Serial Monitor:
-        [MONITOR RX] Node: NODE_02 | Disp: 382mm | Tilt: 90.5° | Vib: 1.86 | Zone: Zone B
+        [MONITOR RX] Node: NODE_02 | Disp: 0.45mm | Tilt: 0.02 deg | Vib: 0.015 | Zone: Zone A
         """
         node_id = packet.get("node_id", "NODE_02")
-        disp = packet.get("displacement_mm", 382.0)
-        
+        disp = float(packet.get("displacement_mm", 0.0) or 0.0)
+
         tilt = packet.get("tilt_y_deg")
         if tilt is None:
             tilt = packet.get("differential_tilt_deg") or packet.get("tilt_composite_deg") or 0.0
-        
-        vib = packet.get("vibration_amp", 1.86)
+
+        vib = float(packet.get("vibration_amp", 0.015) or 0.015)
         zone = packet.get("predicted_zone") or packet.get("zone_id") or packet.get("hardware_zone") or "Zone B"
 
         if "Zone C" in zone or "Critical" in zone:
@@ -376,14 +426,12 @@ class SerialGatewayReader:
         else:
             zone_color = f"{CLR_BOLD}{CLR_GREEN}{zone}{CLR_RESET}"
 
-        # Exact requested format:
-        # [MONITOR RX] Node: NODE_02 | Disp: 382mm | Tilt: 90.5° | Vib: 1.86 | Zone: Zone B
         log_line = (
             f"{CLR_BOLD}[MONITOR RX]{CLR_RESET} "
             f"Node: {CLR_CYAN}{node_id}{CLR_RESET} | "
-            f"Disp: {CLR_WHITE}{disp:.0f}mm{CLR_RESET} | "
-            f"Tilt: {CLR_WHITE}{tilt:.1f} deg{CLR_RESET} | "
-            f"Vib: {CLR_WHITE}{vib:.2f}{CLR_RESET} | "
+            f"Disp: {CLR_WHITE}{disp:.2f}mm{CLR_RESET} | "
+            f"Tilt: {CLR_WHITE}{float(tilt):.2f} deg{CLR_RESET} | "
+            f"Vib: {CLR_WHITE}{vib:.3f}{CLR_RESET} | "
             f"Zone: {zone_color}"
         )
         safe_print(log_line)
@@ -411,51 +459,36 @@ class SerialGatewayReader:
                 logger.error(f"Error in synchronous packet dispatch: {ex}")
 
     def _emit_synthetic_tick(self):
-        """Emits dynamic 1Hz packets matching active hardware schema (NODE_02 ~382mm)."""
-        now_str = datetime.now(timezone.utc).isoformat()
-        self.packets_received += 1
-        self.last_packet_time = now_str
+        """No-op: Purged synthetic fallback to ensure only authentic hardware packets stream."""
+        pass
 
-        # Dynamic jitter simulating active physical sensor on desk/bench
-        jitter = (random.random() - 0.5) * 0.8
-        disp = round(382.0 + jitter, 1)
-        tilt_y = round(90.5 + (random.random() - 0.5) * 0.2, 3)
-        vib = round(max(0.05, 1.86 + (random.random() - 0.5) * 0.15), 4)
+    def list_available_com_ports(self) -> List[str]:
+        """Returns list of detected COM port device names."""
+        ports = self.detect_available_ports()
+        return [p["port"] for p in ports]
 
-        packet = {
-            "node_id": "NODE_02",
-            "role": "MONITORING",
-            "zone_id": "Zone B",
-            "hardware_zone": "Zone B",
-            "seq": self.packets_received,
-            "ts_ms": int(time.time() * 1000),
-            "tilt_x_deg": round(-0.18 + (random.random() - 0.5) * 0.02, 3),
-            "tilt_y_deg": tilt_y,
-            "tilt_composite_deg": round(math.sqrt((-0.18)**2 + tilt_y**2), 3),
-            "displacement_mm": disp,
-            "strain_ue": round(max(0.0, 15.0 + jitter * 2), 1),
-            "vibration_amp": vib,
-            "shock_count": 0,
-            "ref_displacement_mm": 0.0,
-            "differential_displacement_mm": disp,
-            "differential_tilt_deg": round(math.sqrt((-0.18)**2 + tilt_y**2), 3),
-            "gateway_id": "GATEWAY_SURFACE_01",
-            "rssi_dbm": random.randint(-68, -63),
-            "snr_db": round(random.uniform(8.5, 9.8), 1),
-            "gateway_uptime_ms": int(time.time() * 1000) % 10000000,
-            "wifi_rssi": -50,
-            "source": "HARDWARE_LORA_FALLBACK",
-            "timestamp": now_str,
-            "port": self.connected_port
-        }
-        self._dispatch_packet(packet)
+    def set_mode(self, simulation: bool, port: Optional[str] = None):
+        """Switches runtime mode between physical ESP32 hardware and simulation."""
+        settings.SIMULATION_MODE = simulation
+        if port:
+            settings.SERIAL_PORT = port
+        if simulation:
+            self._close_serial()
+            self.gateway_info["status"] = "SIMULATION_MODE"
+        else:
+            self._close_serial()
+            self.gateway_info["status"] = "INITIALIZING"
 
     def get_status(self) -> Dict[str, Any]:
+        active_mode = "SIMULATION" if settings.SIMULATION_MODE else ("HARDWARE_SERIAL" if self.is_connected else "DISCONNECTED")
         return {
+            "active_mode": active_mode,
+            "baud_rate": settings.BAUD_RATE,
+            "available_host_ports": self.list_available_com_ports(),
+            "gateway_metadata": self.gateway_info,
             "is_connected": self.is_connected,
             "connected_port": self.connected_port,
             "configured_port": settings.SERIAL_PORT,
-            "baud_rate": settings.BAUD_RATE,
             "packets_received": self.packets_received,
             "parse_errors": self.parse_errors,
             "last_packet_time": self.last_packet_time,
@@ -467,3 +500,9 @@ class SerialGatewayReader:
 
 # Global singleton instance
 serial_reader = SerialGatewayReader()
+
+def get_global_gateway_reader() -> SerialGatewayReader:
+    """Returns global gateway reader singleton for routers and test suites."""
+    global serial_reader
+    return serial_reader
+

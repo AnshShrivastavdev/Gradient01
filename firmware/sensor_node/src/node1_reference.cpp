@@ -20,7 +20,7 @@
 //   - Telemetry is transmitted over LoRa 433MHz to Gateway & Backend.
 // ================================================================
 
-#define NODE_ID          "NODE_A1"       // Node 1 Reference Identifier
+#define NODE_ID          "NODE_01"       // Node 1 Reference Identifier
 #define NODE_ROLE        "REFERENCE"
 #define ZONE_ID          "Zone A"
 #define SAMPLING_RATE_HZ 1               // 1 Hz transmission interval
@@ -37,9 +37,6 @@
 // I2C Pins for MPU6500
 #define PIN_I2C_SDA      21
 #define PIN_I2C_SCL      22
-
-// Status LED (GPIO 2 on ESP32 DevKit V1)
-#define PIN_STATUS_LED   2
 
 // Runtime state
 static MPU6500Driver mpu;
@@ -61,9 +58,6 @@ void setup() {
   Serial.printf(" [CFG] Role    : %s\n", NODE_ROLE);
   Serial.printf(" [CFG] Zone    : %s\n", ZONE_ID);
   Serial.printf(" [CFG] Rate    : %d Hz\n", SAMPLING_RATE_HZ);
-
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
 
   // ----------------------------------------------------------
   // 1. Initialize I2C Bus and MPU6500
@@ -90,8 +84,8 @@ void setup() {
   if (!LoRa.begin(LORA_BAND)) {
     Serial.println("[ERROR] LoRa SX1278 initialization FAILED!");
     while (true) {
-      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-      delay(200);
+      Serial.println("[ERROR] LoRa hardware not responding. Check wiring (3.3V/GND/SPI)...");
+      delay(2000);
     }
   }
 
@@ -161,13 +155,9 @@ void loop() {
     // --------------------------------------------------------
     // 3. Transmit via LoRa Radio
     // --------------------------------------------------------
-    digitalWrite(PIN_STATUS_LED, HIGH);
-
     LoRa.beginPacket();
     LoRa.print(jsonPayload);
     LoRa.endPacket();
-
-    digitalWrite(PIN_STATUS_LED, LOW);
 
     // --------------------------------------------------------
     // 4. Output to USB Serial (Matches live hardware log format)

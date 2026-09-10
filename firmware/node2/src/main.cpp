@@ -56,7 +56,7 @@
 // Piezoelectric + LM358 Analog Pin
 #define PIN_PIEZO_ADC      34              // GPIO 34 (ADC1_CH6)
 
-#define PIN_STATUS_LED     2
+// #define PIN_STATUS_LED     2  // Deactivated: No LED or Buzzer pins used
 
 // Sensor Instances
 static MPU6500Driver mpu;
@@ -97,8 +97,6 @@ void setup() {
   Serial.printf(" [CFG] Zone    : %s\n", ZONE_ID);
   Serial.printf(" [CFG] Rate    : %d Hz\n", SAMPLING_RATE_HZ);
 
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
   pinMode(PIN_PIEZO_ADC, INPUT);
 
   // ----------------------------------------------------------
@@ -156,11 +154,9 @@ void setup() {
   LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
 
   if (!LoRa.begin(LORA_BAND)) {
-    Serial.println("[ERROR] LoRa SX1278 initialization FAILED!");
-    Serial.println("        Check NSS=5, RST=14, DIO0=26, SCK=18, MISO=19, MOSI=23");
     while (true) {
-      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-      delay(200);
+      Serial.println("[ERROR] LoRa hardware not responding. Check wiring (3.3V/GND/SPI)...");
+      delay(2000);
     }
   }
 
@@ -302,13 +298,9 @@ void loop() {
     // --------------------------------------------------------
     // 6. Transmit via LoRa Radio
     // --------------------------------------------------------
-    digitalWrite(PIN_STATUS_LED, HIGH);
-
     LoRa.beginPacket();
     LoRa.print(jsonPayload);
     LoRa.endPacket();
-
-    digitalWrite(PIN_STATUS_LED, LOW);
 
     // --------------------------------------------------------
     // 7. Output to USB Serial (Matches live hardware log format)

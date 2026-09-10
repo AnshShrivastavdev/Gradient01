@@ -4,7 +4,9 @@ import { useTelemetryContext } from '../context/WebSocketContext';
 
 export const Navbar = () => {
   const { isConnected, telemetry } = useTelemetryContext();
-  const hasCritical = Object.values(telemetry).some((n) => n.predicted_risk === 'Critical');
+  const hasCritical = Object.values(telemetry).some(
+    (n) => n.predicted_risk === 'Critical' || n.current_risk === 'CRITICAL' || n.predicted_zone === 'Zone C' || n.trigger_web_siren === true
+  );
 
   return (
     <header className="bg-[#0B0F19] border-b border-[#1F2937] px-6 py-4 flex items-center justify-between sticky top-0 z-50">

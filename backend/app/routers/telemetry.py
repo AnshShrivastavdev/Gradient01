@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -28,7 +29,6 @@ def fetch_by_node(node_id: str, limit: int = 50, db: Session = Depends(get_db)):
 def predict_instant(packet: RawSensorPacket):
     """Executes robust fault-tolerant inference with dual-engine fallback."""
     result = fault_tolerant_service.predict_packet(packet.model_dump())
-    # Also record displacement reading for the deep forecasting engine
     forecast_service.record_reading(result["node_id"], result["telemetry"]["displacement_mm"])
 
     return {
@@ -46,12 +46,44 @@ def predict_instant(packet: RawSensorPacket):
 async def ingest_wifi_telemetry(packet: dict):
     """
     Direct HTTP POST ingestion endpoint for ESP32 Gateway transmitting over WiFi.
-    Feeds real-time sensor packets directly into the ML service, forecaster, and WebSocket stream.
+    Feeds real-time sensor packets directly into in-memory DSP, micro-dynamics, ML engine,
+    and concurrent WebSocket broadcaster (< 15 ms total response time).
+    Returns synchronized hardware risk level (SAFE, WARNING, CRITICAL) to actuate LEDs and buzzer.
     """
-    from app.main import handle_incoming_lora_packet
-    import time
-    await handle_incoming_lora_packet(packet)
-    return {"status": "ACK", "node_id": packet.get("node_id"), "server_timestamp": time.time()}
+    from app.main import ingest_and_get_zone
+
+    result = await ingest_and_get_zone(packet)
+    risk_level = result.get("risk_level") or ("CRITICAL" if result.get("alert_zone") == "Zone C" else "WARNING" if result.get("alert_zone") == "Zone B" else "SAFE")
+
+    return {
+        "status": "success",
+        "ack": True,
+        "risk_level": risk_level,
+        "node_id": result.get("node_id") or packet.get("node_id", "NODE_02"),
+        "alert_zone": result.get("alert_zone", "Zone A"),
+        "trigger_siren": result.get("trigger_siren", False),
+        "server_timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+@router.post("/tare")
+def tare_baseline(node_id: str = "NODE_02", disp: Optional[float] = None,
+                  tilt_x: Optional[float] = None, tilt_y: Optional[float] = None):
+    """
+    Resets/re-zeros the baseline datum for high-precision micro-scale tracking.
+    """
+    from app.services.dsp_filter import dsp_processor
+    from app.services.ml_engine import ml_engine
+    result = dsp_processor.tare(node_id=node_id, disp=disp, tilt_x=tilt_x, tilt_y=tilt_y)
+    ml_engine.reset_node(node_id=node_id)
+    return result
+
+@router.get("/tare/{node_id}")
+def get_tare_status(node_id: str = "NODE_02"):
+    """
+    Returns the active baseline datum calibration for the requested node.
+    """
+    from app.services.dsp_filter import dsp_processor
+    return dsp_processor.get_baseline(node_id=node_id)
 
 @router.get("/forecast/{node_id}")
 def get_node_forecast(node_id: str, threshold: float = Query(35.0, description="Critical threshold in mm")):
@@ -92,5 +124,13 @@ async def switch_gateway_mode(mode: str = Query(..., description="'HARDWARE_SERI
     reader = get_global_gateway_reader()
     if not reader:
         raise HTTPException(status_code=503, detail="Gateway reader service not initialized")
-    return await reader.switch_mode(mode, port=port)
-
+    if mode == "HARDWARE_SERIAL":
+        reader.set_mode(False, port)
+    else:
+        reader.set_mode(True, port)
+    return {
+        "status": "SUCCESS",
+        "active_mode": mode,
+        "current_mode": mode,
+        "port": reader.connected_port
+    }

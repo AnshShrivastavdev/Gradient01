@@ -31,14 +31,14 @@
 // Full URL constructed at compile time
 #define BACKEND_INGEST_URL "http://" BACKEND_HOST ":" "8000" BACKEND_INGEST_PATH
 
-// HTTP request timeout (ms)
-#define HTTP_TIMEOUT_MS    1000
+// HTTP request timeout (ms) - Low-latency synchronous return
+#define HTTP_TIMEOUT_MS    150
 
 // ----------------------------------------------------------
 // Gateway Identity
 // ----------------------------------------------------------
 #define GATEWAY_ID         "GATEWAY_SURFACE_01"
-#define FIRMWARE_VERSION   "3.0.0-WIFI"
+#define FIRMWARE_VERSION   "3.1.0-ACTUATION"
 
 // ----------------------------------------------------------
 // Serial / UART
@@ -75,9 +75,12 @@
 #define LORA_ENABLE_CRC        true
 
 // ----------------------------------------------------------
-// Status LED
+// Synchronized Hardware Actuation Pins (LEDs & Active Buzzer)
 // ----------------------------------------------------------
-#define PIN_STATUS_LED     2               // Built-in LED on most ESP32 DevKit boards
+#define PIN_LED_GREEN          25
+#define PIN_LED_BLUE           4
+#define PIN_LED_RED            32
+#define PIN_BUZZER             33
 
 // ----------------------------------------------------------
 // Telemetry Buffering (offline resilience)

@@ -1,81 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-
-// ============================================================================
-// Web Audio API Dual-Tone Emergency Siren Synthesizer Fallback
-// Alternates 850Hz / 550Hz square-sawtooth alarm if siren.mp3 is unavailable
-// ============================================================================
-class EmergencySirenSynthesizer {
-  constructor() {
-    this.audioCtx = null;
-    this.oscillator = null;
-    this.gainNode = null;
-    this.isPlaying = false;
-    this.intervalId = null;
-    this.freq = 850;
-  }
-
-  init() {
-    if (!this.audioCtx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) this.audioCtx = new AudioCtx();
-    }
-  }
-
-  start() {
-    if (this.isPlaying) return;
-    this.init();
-    if (!this.audioCtx) return;
-    if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
-
-    try {
-      this.oscillator = this.audioCtx.createOscillator();
-      this.gainNode = this.audioCtx.createGain();
-      this.oscillator.type = 'sawtooth';
-      this.oscillator.frequency.setValueAtTime(850, this.audioCtx.currentTime);
-
-      this.gainNode.gain.setValueAtTime(0.001, this.audioCtx.currentTime);
-      this.gainNode.gain.exponentialRampToValueAtTime(0.25, this.audioCtx.currentTime + 0.1);
-
-      this.oscillator.connect(this.gainNode);
-      this.gainNode.connect(this.audioCtx.destination);
-      this.oscillator.start();
-      this.isPlaying = true;
-
-      this.intervalId = setInterval(() => {
-        if (!this.oscillator || !this.audioCtx) return;
-        this.freq = this.freq === 850 ? 550 : 850;
-        this.oscillator.frequency.setValueAtTime(this.freq, this.audioCtx.currentTime);
-      }, 380);
-    } catch (e) {
-      console.warn('[AUDIO] Synthesizer issue:', e);
-    }
-  }
-
-  stop() {
-    if (!this.isPlaying) return;
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-    if (this.oscillator && this.audioCtx) {
-      try {
-        this.gainNode.gain.exponentialRampToValueAtTime(0.0001, this.audioCtx.currentTime + 0.08);
-        setTimeout(() => {
-          try {
-            this.oscillator?.stop();
-            this.oscillator?.disconnect();
-          } catch (e) {}
-          this.oscillator = null;
-        }, 90);
-      } catch (e) {
-        this.oscillator = null;
-      }
-    }
-    this.isPlaying = false;
-  }
-}
-
-const synthSiren = new EmergencySirenSynthesizer();
+import { sirenSynthesizer } from '../services/siren';
 
 export default function DashboardView() {
   const [isConnected, setIsConnected] = useState(false);
@@ -123,14 +47,37 @@ export default function DashboardView() {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const audioRef = useRef(null);
+  const sirenOffTimeoutRef = useRef(null);
 
-  // Request browser desktop notification permissions on mount
+  const lastNotificationTimeRef = useRef(0);
+
+  // Request browser desktop notification permissions and pre-warm audio context on first user interaction
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
         Notification.requestPermission();
       }
     }
+
+    const unlockAudio = () => {
+      sirenSynthesizer.init();
+      if (sirenSynthesizer.audioCtx && sirenSynthesizer.audioCtx.state === 'suspended') {
+        sirenSynthesizer.audioCtx.resume().catch(() => {});
+      }
+      if (!audioRef.current) {
+        audioRef.current = new Audio('/sounds/siren.mp3');
+        audioRef.current.loop = true;
+        audioRef.current.load();
+      }
+    };
+
+    window.addEventListener('click', unlockAudio, { once: false, passive: true });
+    window.addEventListener('keydown', unlockAudio, { once: false, passive: true });
+
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
   }, []);
 
   // Establish & Maintain WebSocket link to FastAPI at ws://localhost:8000/ws/telemetry
@@ -163,14 +110,18 @@ export default function DashboardView() {
                 forecasting: { ...prev.forecasting, ...(data.forecasting || {}) }
               }));
 
-              // Check web siren trigger
-              if (data.trigger_web_siren === true) {
+              // Check web siren trigger (Zone C or trigger_web_siren flag)
+              const isCrit = data.trigger_web_siren === true || data.predicted_zone === 'Zone C' || data.current_risk === 'CRITICAL';
+              if (isCrit) {
                 setSirenActive(true);
+                if (!isMuted) {
+                  sirenSynthesizer.reportZone('DashboardView', 'Zone C');
+                }
 
                 // Debounced desktop notification (every 10s)
                 const now = Date.now();
-                if (now - lastNotificationTime > 10000) {
-                  setLastNotificationTime(now);
+                if (now - lastNotificationTimeRef.current > 10000) {
+                  lastNotificationTimeRef.current = now;
                   if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
                     new Notification('CRITICAL SUBSIDENCE HAZARD', {
                       body: `Station ${data.node_id} reached ${data.predicted_zone || 'CRITICAL'}! ${data.forecasting?.collapse_message || 'Evacuate sector immediately!'}`,
@@ -181,6 +132,7 @@ export default function DashboardView() {
                 }
               } else {
                 setSirenActive(false);
+                sirenSynthesizer.reportZone('DashboardView', data.predicted_zone || 'Zone A');
               }
             }
           } catch (err) {
@@ -205,32 +157,22 @@ export default function DashboardView() {
 
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (sirenOffTimeoutRef.current) clearTimeout(sirenOffTimeoutRef.current);
       if (wsRef.current) wsRef.current.close();
-      synthSiren.stop();
+      sirenSynthesizer.stop(true);
       if (audioRef.current) audioRef.current.pause();
     };
-  }, [lastNotificationTime]);
+  }, [isMuted]);
 
-  // Handle siren audio playback (siren.mp3 with fallback to Web Audio synthesizer)
+  // Handle mute toggle
   useEffect(() => {
-    if (sirenActive && !isMuted) {
-      // Try HTML5 Audio element first
-      if (!audioRef.current) {
-        audioRef.current = new Audio('/sounds/siren.mp3');
-        audioRef.current.loop = true;
-      }
-      audioRef.current.play().catch(() => {
-        // Fallback to pure Web Audio API synthesizer
-        synthSiren.start();
-      });
-    } else {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-      synthSiren.stop();
+    if (isMuted) {
+      sirenSynthesizer.stop(true);
+      if (audioRef.current) audioRef.current.pause();
+    } else if (sirenActive) {
+      sirenSynthesizer.setZone('Zone C');
     }
-  }, [sirenActive, isMuted]);
+  }, [isMuted, sirenActive]);
 
   // Zone UI styling
   const zoneConfig = useMemo(() => {

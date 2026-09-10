@@ -67,7 +67,7 @@ def test_ingest_wifi_telemetry_gateway():
     response = client.post("/api/v1/telemetry/ingest", json=gateway_payload)
     assert response.status_code == 200
     res_data = response.json()
-    assert res_data["status"] == "ACK"
+    assert res_data["status"] in ["ACK", "success"]
     assert res_data["node_id"] == "NODE_B1"
     assert "server_timestamp" in res_data
 

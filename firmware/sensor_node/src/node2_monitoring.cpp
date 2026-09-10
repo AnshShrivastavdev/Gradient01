@@ -53,9 +53,6 @@ void setup() {
   Serial.printf(" [CFG] Zone    : %s\n", ZONE_ID_MONITOR);
   Serial.printf(" [CFG] Rate    : %d Hz\n", RATE_HZ);
 
-  pinMode(PIN_STATUS_LED, OUTPUT);
-  digitalWrite(PIN_STATUS_LED, LOW);
-
   // ----------------------------------------------------------
   // 1. Initialize I2C Bus for MPU6500 & VL53L4CD
   // ----------------------------------------------------------
@@ -119,8 +116,8 @@ void setup() {
     Serial.println("  GND  -> ESP32 GND");
     Serial.println("**************************************************");
     while (true) {
-      digitalWrite(PIN_STATUS_LED, !digitalRead(PIN_STATUS_LED));
-      delay(200);
+      Serial.println("[ERROR] LoRa hardware not responding. Check wiring (3.3V/GND/SPI)...");
+      delay(2000);
     }
   }
 
@@ -221,13 +218,9 @@ void loop() {
     // ----------------------------------------------------------
     // 3. Transmit via LoRa 433 MHz Radio
     // ----------------------------------------------------------
-    digitalWrite(PIN_STATUS_LED, HIGH);
-
     LoRa.beginPacket();
     LoRa.print(jsonPayload);
     LoRa.endPacket();
-
-    digitalWrite(PIN_STATUS_LED, LOW);
 
     // ----------------------------------------------------------
     // 4. Output to USB Serial (Debug)
