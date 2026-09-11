@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["*"]
     
     # Serial / UART Gateway Connection
-    SERIAL_PORT: str = os.getenv("SERIAL_PORT", "COM5")
+    SERIAL_PORT: str = os.getenv("SERIAL_PORT", "AUTO")
     BAUD_RATE: int = int(os.getenv("BAUD_RATE", 115200))
     SIMULATION_MODE: bool = os.getenv("SIMULATION_MODE", "false").lower() == "true"
     

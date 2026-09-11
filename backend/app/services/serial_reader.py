@@ -119,6 +119,10 @@ class SerialGatewayReader:
 
         available = self.detect_available_ports()
 
+        # If running on Linux/Cloud container (e.g. Render, Docker), Windows COM ports do not exist
+        if sys.platform != "win32" and cfg_port.upper().startswith("COM"):
+            cfg_port = "AUTO"
+
         if cfg_port and cfg_port.upper() != "AUTO":
             return cfg_port
 
@@ -234,7 +238,9 @@ class SerialGatewayReader:
                         if (now_t - self._last_lock_warn_time) > 10.0:
                             self._last_lock_warn_time = now_t
                             logger.warning(f"Failed to open '{target_port}': {err_str}. Retrying in {reconnect_delay}s...")
-                    
+
+                    # Always emit synthetic fallback packet so WebSocket clients receive live stream
+                    self._emit_synthetic_tick()
                     time.sleep(reconnect_delay)
                     continue
                 except Exception as ex:
