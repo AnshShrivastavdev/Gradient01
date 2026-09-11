@@ -41,15 +41,14 @@ export function getWebSocketUrl(endpoint = '/ws/live') {
     return `${clean}${defaultRoute}`;
   }
 
-  // Automatic browser-side fallback if hosted on same domain / reverse proxy
+  // Automatic cloud fallback for Vercel, Netlify, or any remote device/phone
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const host = window.location.hostname;
-    if (host !== 'localhost' && host !== '127.0.0.1' && !host.includes('vercel.app') && !host.includes('netlify.app')) {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${proto}//${window.location.host}${defaultRoute}`;
+    if (host !== 'localhost' && host !== '127.0.0.1') {
+      return `wss://gradient01.onrender.com${defaultRoute}`;
     }
   }
 
-  // Local development default
+  // Local development default (when running on localhost)
   return `ws://localhost:8000${defaultRoute}`;
 }

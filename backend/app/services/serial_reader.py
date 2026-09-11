@@ -447,7 +447,11 @@ class SerialGatewayReader:
         # 1. Print formatted live serial monitor log to console
         self._print_terminal_monitor(packet)
 
-        # 2. Dispatch to async/sync callback
+        # 2. Asynchronously mirror physical hardware packet to Render cloud backend
+        if self.connected_port:
+            self._async_forward_to_cloud(packet)
+
+        # 3. Dispatch to async/sync callback
         if not self.on_packet_callback:
             return
 
@@ -463,6 +467,30 @@ class SerialGatewayReader:
                     asyncio.run(res)
             except Exception as ex:
                 logger.error(f"Error in synchronous packet dispatch: {ex}")
+
+    def _async_forward_to_cloud(self, packet: Dict[str, Any]):
+        """Asynchronously mirrors physical hardware packets to Render cloud backend with zero latency impact."""
+        cloud_url = os.getenv("CLOUD_INGEST_URL", "https://gradient01.onrender.com/api/v1/telemetry/ingest")
+        if not cloud_url:
+            return
+
+        def _worker():
+            try:
+                import urllib.request
+                import json
+                payload = json.dumps(packet).encode("utf-8")
+                req = urllib.request.Request(
+                    cloud_url,
+                    data=payload,
+                    headers={"Content-Type": "application/json", "User-Agent": "HardwareGatewayBridge/1.0"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=1.5):
+                    pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _emit_synthetic_tick(self):
         """No-op: Purged synthetic fallback to ensure only authentic hardware packets stream."""
