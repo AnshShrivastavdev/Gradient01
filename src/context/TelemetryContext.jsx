@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { sirenSynthesizer } from '../services/siren';
+import { getWebSocketUrl } from '../utils/wsUrl';
 
 const TelemetryContext = createContext(null);
 
@@ -85,7 +86,8 @@ export const TelemetryProvider = ({ children }) => {
     function connectWs() {
       if (!isMounted) return;
       try {
-        socket = new WebSocket('ws://localhost:8000/ws/live');
+        const wsUrl = getWebSocketUrl('/ws/live');
+        socket = new WebSocket(wsUrl);
         wsRef.current = socket;
 
         socket.onopen = () => {

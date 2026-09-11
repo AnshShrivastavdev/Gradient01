@@ -1,0 +1,14 @@
+{
+  "best_cv_score_f1_macro": 0.9999,
+  "best_hyperparameters": {
+    "colsample_bytree": 0.8,
+    "learning_rate": 0.05,
+    "max_depth": 4,
+    "n_estimators": 80,
+    "subsample": 0.8
+  },
+  "cv_folds": 5,
+  "filter_applied": "Butterworth Low-pass (0.30Hz) + Hampel Outlier Rejection",
+  "feature_count": 18,
+  "total_samples": 21600
+}

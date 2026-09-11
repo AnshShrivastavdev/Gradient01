@@ -115,11 +115,13 @@ class SubsidenceMLEngine:
         # 1. Load Classifier & Encoder
         model_paths = [
             getattr(settings, "ML_MODEL_PATH", ""),
+            os.path.join(base_dir, "artifacts", "subsidence_model.joblib"),
             os.path.join(base_dir, "..", "ml_engine", "artifacts", "subsidence_model.joblib"),
             os.path.join(base_dir, "..", "ml", "models", "subsidence_model.joblib")
         ]
         encoder_paths = [
             getattr(settings, "ML_ENCODER_PATH", ""),
+            os.path.join(base_dir, "artifacts", "label_encoder.joblib"),
             os.path.join(base_dir, "..", "ml_engine", "artifacts", "label_encoder.joblib"),
             os.path.join(base_dir, "..", "ml", "models", "label_encoder.joblib")
         ]
@@ -140,10 +142,12 @@ class SubsidenceMLEngine:
         if TORCH_AVAILABLE and SubsidenceLSTMForecaster is not None:
             pth_candidates = [
                 getattr(settings, "FORECASTER_PTH_PATH", ""),
+                os.path.join(base_dir, "artifacts", "displacement_forecaster.pth"),
                 os.path.join(base_dir, "..", "ml_engine", "artifacts", "displacement_forecaster.pth")
             ]
             scaler_candidates = [
                 getattr(settings, "FORECASTER_SCALER_PATH", ""),
+                os.path.join(base_dir, "artifacts", "forecaster_scaler.joblib"),
                 os.path.join(base_dir, "..", "ml_engine", "artifacts", "forecaster_scaler.joblib")
             ]
 

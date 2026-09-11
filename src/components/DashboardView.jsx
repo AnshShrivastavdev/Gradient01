@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { sirenSynthesizer } from '../services/siren';
+import { getWebSocketUrl } from '../utils/wsUrl';
 
 export default function DashboardView() {
   const [isConnected, setIsConnected] = useState(false);
@@ -82,7 +83,7 @@ export default function DashboardView() {
 
   // Establish & Maintain WebSocket link to FastAPI at ws://localhost:8000/ws/telemetry
   useEffect(() => {
-    const wsUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) || 'ws://localhost:8000/ws/telemetry';
+    const wsUrl = getWebSocketUrl('/ws/telemetry');
 
     function connect() {
       try {
